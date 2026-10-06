@@ -12,7 +12,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/** ZIP backup: backup.json (decks, cards, faces, scheduling) + audio/ recordings. */
+/** ZIP backup: backup.json (decks, cards, faces, scheduling) + audio/ + images/. */
 object Backup {
     private fun audioDir(ctx: Context) = File(ctx.filesDir, "audio").apply { mkdirs() }
 
@@ -22,7 +22,7 @@ object Backup {
         val cards = dao.allCards()
         val items = dao.allItems()
         val root = JSONObject()
-        root.put("version", 1)
+        root.put("version", 2)
         val da = JSONArray()
         for (d in decks) da.put(JSONObject().put("id", d.id).put("name", d.name))
         root.put("decks", da)
@@ -30,7 +30,8 @@ object Backup {
         for (c in cards) {
             ca.put(JSONObject().put("id", c.id).put("deckId", c.deckId).put("tags", c.tags)
                 .put("due", c.due).put("interval", c.interval).put("ease", c.ease)
-                .put("reps", c.reps).put("lapses", c.lapses).put("lastReview", c.lastReview))
+                .put("reps", c.reps).put("lapses", c.lapses).put("lastReview", c.lastReview)
+                .put("state", c.state).put("step", c.step))
         }
         root.put("cards", ca)
         val ia = JSONArray()
@@ -44,11 +45,13 @@ object Backup {
             zip.putNextEntry(ZipEntry("backup.json"))
             zip.write(root.toString().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
-            val dir = audioDir(ctx)
-            for (n in items.filter { it.type == "AUDIO" && it.data.isNotBlank() }.map { it.data }.distinct()) {
-                val f = File(dir, n)
+            val media = items.filter { (it.type == "AUDIO" || it.type == "IMAGE") && it.data.isNotBlank() }
+                .distinctBy { it.type + "/" + it.data }
+            for (m in media) {
+                val isAudio = m.type == "AUDIO"
+                val f = if (isAudio) File(audioDir(ctx), m.data) else ImageStore.file(ctx, m.data)
                 if (f.exists()) {
-                    zip.putNextEntry(ZipEntry("audio/$n"))
+                    zip.putNextEntry(ZipEntry((if (isAudio) "audio/" else "images/") + m.data))
                     f.inputStream().use { it.copyTo(zip) }
                     zip.closeEntry()
                 }
@@ -60,7 +63,8 @@ object Backup {
     /** Adds the backup's decks as new decks. Never deletes or overwrites existing data. */
     suspend fun restore(ctx: Context, db: Db, uri: Uri): String = withContext(Dispatchers.IO) {
         var json: String? = null
-        val dir = audioDir(ctx)
+        val aDir = audioDir(ctx)
+        val iDir = ImageStore.dir(ctx)
         val ins = ctx.contentResolver.openInputStream(uri) ?: throw IllegalStateException("Cannot open file")
         ZipInputStream(ins.buffered()).use { zip ->
             var e: ZipEntry? = zip.nextEntry
@@ -68,9 +72,10 @@ object Backup {
                 val name = e.name
                 if (name == "backup.json") {
                     json = zip.readBytes().toString(Charsets.UTF_8)
-                } else if (name.startsWith("audio/") && !e.isDirectory) {
+                } else if (!e.isDirectory && (name.startsWith("audio/") || name.startsWith("images/"))) {
                     val fn = File(name).name
-                    File(dir, fn).outputStream().use { o -> zip.copyTo(o) }
+                    val target = if (name.startsWith("audio/")) File(aDir, fn) else File(iDir, fn)
+                    target.outputStream().use { o -> zip.copyTo(o) }
                 }
                 e = zip.nextEntry
             }
@@ -93,11 +98,13 @@ object Backup {
             for (k in 0 until ca.length()) {
                 val o = ca.getJSONObject(k)
                 val deck = dmap[o.getLong("deckId")] ?: continue
+                val reps = o.optInt("reps", 0)
                 cmap[o.getLong("id")] = dao.insertCard(
                     Flashcard(
                         deckId = deck, tags = o.optString("tags", ""), due = o.optLong("due", 0),
                         interval = o.optDouble("interval", 0.0), ease = o.optDouble("ease", 2.5),
-                        reps = o.optInt("reps", 0), lapses = o.optInt("lapses", 0), lastReview = o.optLong("lastReview", 0)
+                        reps = reps, lapses = o.optInt("lapses", 0), lastReview = o.optLong("lastReview", 0),
+                        state = o.optInt("state", if (reps > 0) 2 else 0), step = o.optInt("step", 0)
                     )
                 )
                 nCards++

@@ -2,10 +2,13 @@ package com.flashcards.app
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity data class Deck(@PrimaryKey(autoGenerate = true) val id: Long = 0, val name: String)
 
+/** state: 0 New, 1 Learning, 2 Review, 3 Relearning */
 @Entity(indices = [Index("deckId"), Index("due")])
 data class Flashcard(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -16,10 +19,12 @@ data class Flashcard(
     val ease: Double = 2.5,
     val reps: Int = 0,
     val lapses: Int = 0,
-    val lastReview: Long = 0
+    val lastReview: Long = 0,
+    @ColumnInfo(defaultValue = "0") val state: Int = 0,
+    @ColumnInfo(defaultValue = "0") val step: Int = 0
 )
 
-/** One piece of content on one face. type: TEXT, LATEX (IMAGE, AUDIO added later). */
+/** One piece of content on one face. type: TEXT, LATEX, IMAGE, AUDIO (data = file name for IMAGE/AUDIO). */
 @Entity(indices = [Index("cardId")])
 data class Item(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -33,18 +38,20 @@ data class Item(
 
 data class DeckInfo(val id: Long, val name: String, val total: Int, val due: Int, val fresh: Int)
 data class CardRow(val id: Long, val tags: String, val preview: String?, val due: Long, val reps: Int)
+data class CardHit(val id: Long, val deckId: Long, val deckName: String, val preview: String?, val tags: String)
 
 @Dao
 interface AppDao {
     @Insert suspend fun insertDeck(d: Deck): Long
     @Query("DELETE FROM Deck WHERE id=:id") suspend fun deleteDeck(id: Long)
+    @Query("UPDATE Deck SET name=:name WHERE id=:id") suspend fun renameDeck(id: Long, name: String)
     @Query("DELETE FROM Item WHERE cardId IN (SELECT id FROM Flashcard WHERE deckId=:deck)") suspend fun deleteDeckItems(deck: Long)
     @Query("DELETE FROM Flashcard WHERE deckId=:deck") suspend fun deleteDeckCards(deck: Long)
 
     @Query("SELECT d.id AS id, d.name AS name, " +
         "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id) AS total, " +
-        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.reps>0 AND c.due<=:now) AS due, " +
-        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.reps=0) AS fresh " +
+        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state<>0 AND c.due<=:now) AS due, " +
+        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state=0) AS fresh " +
         "FROM Deck d ORDER BY d.name COLLATE NOCASE")
     fun decks(now: Long): Flow<List<DeckInfo>>
 
@@ -56,8 +63,10 @@ interface AppDao {
     @Insert suspend fun insertItems(l: List<Item>)
     @Query("DELETE FROM Item WHERE cardId=:id") suspend fun deleteItems(id: Long)
     @Query("SELECT * FROM Item WHERE cardId=:id ORDER BY face, pos") suspend fun items(id: Long): List<Item>
+    @Query("SELECT i.* FROM Item i JOIN Flashcard c ON c.id=i.cardId WHERE c.deckId=:deck ORDER BY i.cardId, i.face, i.pos")
+    suspend fun deckItems(deck: Long): List<Item>
 
-    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND (reps=0 OR due<=:now) ORDER BY (reps=0), due LIMIT 200")
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND (state=0 OR due<=:now) ORDER BY (state=0), due LIMIT 200")
     suspend fun queue(deck: Long, now: Long): List<Long>
 
     @Insert suspend fun log(r: ReviewLog)
@@ -66,39 +75,79 @@ interface AppDao {
     @Query("SELECT * FROM Flashcard") suspend fun allCards(): List<Flashcard>
     @Query("SELECT * FROM Item") suspend fun allItems(): List<Item>
 
+    @Query("SELECT tags FROM Flashcard WHERE deckId=:deck AND tags<>''")
+    fun tagLists(deck: Long): Flow<List<String>>
+
     @Query("SELECT c.id AS id, c.tags AS tags, " +
-        "(SELECT data FROM Item WHERE cardId=c.id AND type<>'AUDIO' ORDER BY face, pos LIMIT 1) AS preview, " +
+        "(SELECT data FROM Item WHERE cardId=c.id AND type IN ('TEXT','LATEX') ORDER BY face, pos LIMIT 1) AS preview, " +
         "c.due AS due, c.reps AS reps FROM Flashcard c WHERE c.deckId=:deck AND (:q='' " +
-        "OR c.tags LIKE '%'||:q||'%' OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type<>'AUDIO' AND i.data LIKE '%'||:q||'%')) " +
+        "OR c.tags LIKE '%'||:q||'%' OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type IN ('TEXT','LATEX') AND i.data LIKE '%'||:q||'%')) " +
         "ORDER BY c.id DESC LIMIT 1000")
     fun cards(deck: Long, q: String): Flow<List<CardRow>>
+
+    @Query("SELECT c.id AS id, c.deckId AS deckId, d.name AS deckName, " +
+        "(SELECT data FROM Item WHERE cardId=c.id AND type IN ('TEXT','LATEX') ORDER BY face, pos LIMIT 1) AS preview, " +
+        "c.tags AS tags FROM Flashcard c JOIN Deck d ON d.id=c.deckId WHERE :q<>'' AND (c.tags LIKE '%'||:q||'%' " +
+        "OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type IN ('TEXT','LATEX') AND i.data LIKE '%'||:q||'%')) " +
+        "ORDER BY c.id DESC LIMIT 200")
+    fun searchAll(q: String): Flow<List<CardHit>>
 }
 
-@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 1, exportSchema = false)
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN state INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN step INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE Flashcard SET state=2 WHERE reps>0")
+    }
+}
+
+@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 2, exportSchema = false)
 abstract class Db : RoomDatabase() {
     abstract fun dao(): AppDao
     companion object {
         @Volatile private var inst: Db? = null
         fun get(ctx: Context): Db = inst ?: synchronized(this) {
-            inst ?: Room.databaseBuilder(ctx.applicationContext, Db::class.java, "flashcards.db").build().also { inst = it }
+            inst ?: Room.databaseBuilder(ctx.applicationContext, Db::class.java, "flashcards.db")
+                .addMigrations(MIGRATION_1_2).build().also { inst = it }
         }
     }
 }
 
-/** Spaced repetition, kept separate from UI. rating: 0=Again 1=Hard 2=Good 3=Easy */
+/** Spaced repetition: New -> Learning (1 min, 10 min) -> Review; failed Review -> Relearning. rating 0=Again 1=Hard 2=Good 3=Easy */
 object Scheduler {
     const val DAY = 86_400_000L
+    private const val MIN = 60_000L
+    private val steps = longArrayOf(1 * MIN, 10 * MIN)
+
     fun next(c: Flashcard, rating: Int, now: Long): Flashcard {
-        var ease = c.ease
+        var state = c.state
+        var step = c.step
         var iv = c.interval
+        var ease = c.ease
         var lapses = c.lapses
-        val due: Long
-        when (rating) {
-            0 -> { lapses++; ease = maxOf(1.3, ease - 0.2); iv = 0.0; due = now + 10 * 60_000L }
-            1 -> { ease = maxOf(1.3, ease - 0.15); iv = if (iv < 1) 1.0 else maxOf(1.0, iv * 1.2); due = now + (iv * DAY).toLong() }
-            2 -> { iv = if (iv < 1) 1.0 else iv * ease; due = now + (iv * DAY).toLong() }
-            else -> { ease += 0.15; iv = if (iv < 1) 4.0 else iv * ease * 1.3; due = now + (iv * DAY).toLong() }
+        var due = now
+        when (state) {
+            0, 1 -> when (rating) {
+                0 -> { state = 1; step = 0; due = now + steps[0] }
+                1 -> { state = 1; due = now + steps[minOf(step, steps.lastIndex)] }
+                2 -> {
+                    if (step + 1 < steps.size) { state = 1; step += 1; due = now + steps[step] }
+                    else { state = 2; step = 0; iv = 1.0; due = now + DAY }
+                }
+                else -> { state = 2; step = 0; iv = 4.0; due = now + 4 * DAY }
+            }
+            2 -> when (rating) {
+                0 -> { lapses++; ease = maxOf(1.3, ease - 0.2); iv = maxOf(1.0, iv * 0.5); state = 3; step = 0; due = now + 10 * MIN }
+                1 -> { ease = maxOf(1.3, ease - 0.15); iv = maxOf(1.0, iv * 1.2); due = now + (iv * DAY).toLong() }
+                2 -> { iv = maxOf(1.0, iv * ease); due = now + (iv * DAY).toLong() }
+                else -> { ease += 0.15; iv = maxOf(1.0, iv * ease * 1.3); due = now + (iv * DAY).toLong() }
+            }
+            else -> when (rating) {
+                0 -> { due = now + 10 * MIN }
+                1, 2 -> { state = 2; iv = maxOf(1.0, iv); due = now + (iv * DAY).toLong() }
+                else -> { state = 2; iv = maxOf(1.0, iv * 1.3); due = now + (iv * DAY).toLong() }
+            }
         }
-        return c.copy(due = due, interval = iv, ease = ease, reps = c.reps + 1, lapses = lapses, lastReview = now)
+        return c.copy(due = due, interval = iv, ease = ease, reps = c.reps + 1, lapses = lapses, lastReview = now, state = state, step = step)
     }
 }
