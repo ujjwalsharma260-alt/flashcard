@@ -62,10 +62,14 @@ interface AppDao {
 
     @Insert suspend fun log(r: ReviewLog)
 
+    @Query("SELECT * FROM Deck") suspend fun allDecks(): List<Deck>
+    @Query("SELECT * FROM Flashcard") suspend fun allCards(): List<Flashcard>
+    @Query("SELECT * FROM Item") suspend fun allItems(): List<Item>
+
     @Query("SELECT c.id AS id, c.tags AS tags, " +
-        "(SELECT data FROM Item WHERE cardId=c.id ORDER BY face, pos LIMIT 1) AS preview, " +
+        "(SELECT data FROM Item WHERE cardId=c.id AND type<>'AUDIO' ORDER BY face, pos LIMIT 1) AS preview, " +
         "c.due AS due, c.reps AS reps FROM Flashcard c WHERE c.deckId=:deck AND (:q='' " +
-        "OR c.tags LIKE '%'||:q||'%' OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.data LIKE '%'||:q||'%')) " +
+        "OR c.tags LIKE '%'||:q||'%' OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type<>'AUDIO' AND i.data LIKE '%'||:q||'%')) " +
         "ORDER BY c.id DESC LIMIT 1000")
     fun cards(deck: Long, q: String): Flow<List<CardRow>>
 }

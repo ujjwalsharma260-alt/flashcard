@@ -2,19 +2,32 @@
 
 package com.flashcards.app
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -25,6 +38,11 @@ sealed class Screen {
     data class DeckS(val id: Long) : Screen()
     data class Edit(val deckId: Long, val cardId: Long) : Screen()
     data class Review(val deckId: Long) : Screen()
+}
+
+@Composable
+fun BackIcon(onClick: () -> Unit) {
+    IconButton(onClick = onClick) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
 }
 
 @Composable
@@ -43,17 +61,40 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
 @Composable
 fun HomeScreen(db: Db, theme: Int, onTheme: (Int) -> Unit, open: (Long) -> Unit) {
     val dao = db.dao()
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val flow = remember { dao.decks(System.currentTimeMillis()) }
     val decks by flow.collectAsState(emptyList())
     var q by remember { mutableStateOf("") }
     var dialog by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     val shown = decks.filter { it.name.contains(q, ignoreCase = true) }
+
+    val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) scope.launch {
+            val msg = try { Backup.export(ctx, db, uri) } catch (e: Exception) { "Export failed: ${e.message}" }
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+    val importL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val msg = try { Backup.restore(ctx, db, uri) } catch (e: Exception) { "Import failed: this is not a valid backup file" }
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("My Decks") }, actions = {
-                TextButton(onClick = { onTheme((theme + 1) % 3) }) { Text(listOf("Theme: System", "Theme: Light", "Theme: Dark")[theme]) }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Export backup (save to Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
+                        DropdownMenuItem(text = { Text("Import backup") }, onClick = { menu = false; importL.launch(arrayOf("*/*")) })
+                        DropdownMenuItem(text = { Text(listOf("Theme: System", "Theme: Light", "Theme: Dark")[theme]) }, onClick = { onTheme((theme + 1) % 3) })
+                    }
+                }
             })
         },
         floatingActionButton = { ExtendedFloatingActionButton(onClick = { name = ""; dialog = true }) { Text("+ Create Deck") } }
@@ -101,9 +142,9 @@ fun DeckScreen(db: Db, deckId: Long, back: () -> Unit, edit: (Long) -> Unit, stu
     var confirmDelete by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(info?.name ?: "") },
-            navigationIcon = { TextButton(onClick = back) { Text("Back") } },
-            actions = { TextButton(onClick = { confirmDelete = true }) { Text("Delete deck") } }
+            title = { },
+            navigationIcon = { BackIcon(back) },
+            actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete deck") } }
         )
     }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
@@ -119,7 +160,7 @@ fun DeckScreen(db: Db, deckId: Long, back: () -> Unit, edit: (Long) -> Unit, stu
                 items(cards, key = { it.id }) { c ->
                     Card(onClick = { edit(c.id) }, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
-                            Text((c.preview ?: "(empty)").take(120), maxLines = 2)
+                            Text((c.preview ?: "(voice only)").take(120), maxLines = 2)
                             if (c.tags.isNotBlank()) Text(c.tags, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -172,6 +213,8 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
         }
     }
 
+    fun curIdx(): Int = sel.coerceIn(0, faces.lastIndex)
+
     fun save() {
         val clean = faces.map { f -> f.filter { it.data.isNotBlank() } }.filter { it.isNotEmpty() }
         if (clean.isEmpty()) { err = "Add some content first."; return }
@@ -191,10 +234,10 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
         }
     }
 
-    fun setFace(items: List<EItem>) { faces[sel] = items }
+    fun setFace(items: List<EItem>) { faces[curIdx()] = items }
 
     fun insertFormula(t: String) {
-        val cur = faces[sel].toMutableList()
+        val cur = faces[curIdx()].toMutableList()
         val target = if (focusIdx in cur.indices && cur[focusIdx].type == "LATEX") focusIdx else cur.indexOfLast { it.type == "LATEX" }
         if (target >= 0) cur[target] = cur[target].copy(data = cur[target].data + t) else cur.add(EItem("LATEX", t))
         setFace(cur)
@@ -203,43 +246,62 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(if (cardId == 0L) "New card" else "Edit card") },
-            navigationIcon = { TextButton(onClick = back) { Text("Back") } },
+            navigationIcon = { BackIcon(back) },
             actions = {
-                if (cardId != 0L) TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
-                TextButton(onClick = { save() }) { Text("Save") }
+                if (cardId != 0L) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete card") }
+                IconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "Save") }
             }
         )
     }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 12.dp).verticalScroll(rememberScrollState())) {
-            ScrollableTabRow(selectedTabIndex = sel.coerceAtMost(faces.lastIndex), edgePadding = 0.dp) {
-                faces.forEachIndexed { i, _ -> Tab(selected = sel == i, onClick = { sel = i }, text = { Text("Face ${i + 1}") }) }
+            ScrollableTabRow(selectedTabIndex = curIdx(), edgePadding = 0.dp) {
+                faces.forEachIndexed { i, _ -> Tab(selected = curIdx() == i, onClick = { sel = i }, text = { Text("Face ${i + 1}") }) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (faces.size < 5) TextButton(onClick = { faces.add(listOf(EItem("TEXT", ""))); sel = faces.lastIndex }) { Text("+ Face") }
-                if (faces.size > 2) TextButton(onClick = { faces.removeAt(sel); sel = sel.coerceAtMost(faces.lastIndex) }) { Text("Remove face") }
+                TextButton(enabled = faces.size < 5, onClick = {
+                    if (faces.size < 5) { faces.add(listOf(EItem("TEXT", ""))); sel = faces.lastIndex }
+                }) { Text("+ Face") }
+                TextButton(enabled = faces.size > 2, onClick = {
+                    if (faces.size > 2) {
+                        val s = curIdx()
+                        faces.removeAt(s)
+                        sel = s.coerceAtMost(faces.lastIndex)
+                    }
+                }) { Text("Remove face") }
             }
-            val cur = faces[sel.coerceAtMost(faces.lastIndex)]
+            val cur = faces[curIdx()]
             cur.forEachIndexed { i, e ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = e.data,
-                        onValueChange = { nv -> setFace(cur.toMutableList().also { l -> l[i] = e.copy(data = nv) }) },
-                        label = { Text(if (e.type == "LATEX") "Formula (LaTeX)" else "Text") },
-                        textStyle = if (e.type == "LATEX") MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }
+                if (e.type == "AUDIO") {
+                    AudioItem(
+                        name = e.data,
+                        onChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = EItem("AUDIO", nv) }) },
+                        onRemove = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }
                     )
-                    TextButton(onClick = { setFace(cur.toMutableList().also { l -> l.removeAt(i) }) }) { Text("✕") }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = e.data,
+                            onValueChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = e.copy(data = nv) }) },
+                            label = { Text(if (e.type == "LATEX") "Formula (LaTeX)" else "Text") },
+                            textStyle = if (e.type == "LATEX") MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }
+                        )
+                        IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Remove")
+                        }
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { setFace(cur + EItem("TEXT", "")) }) { Text("+ Text") }
-                OutlinedButton(onClick = { setFace(cur + EItem("LATEX", "")) }) { Text("+ Formula") }
+                OutlinedButton(onClick = { setFace(faces[curIdx()] + EItem("TEXT", "")) }) { Text("+ Text") }
+                OutlinedButton(onClick = { setFace(faces[curIdx()] + EItem("LATEX", "")) }) { Text("+ Formula") }
+                OutlinedButton(onClick = { setFace(faces[curIdx()] + EItem("AUDIO", "")) }) { Text("+ Audio") }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 formulaButtons.forEach { (label, tpl) -> FilledTonalButton(onClick = { insertFormula(tpl) }, contentPadding = PaddingValues(horizontal = 12.dp)) { Text(label) } }
             }
             Text("Preview", style = MaterialTheme.typography.labelMedium)
-            FaceView(cur.filter { it.data.isNotBlank() }.map { it.type to it.data }, dark, Modifier.fillMaxWidth().height(180.dp))
+            FaceView(cur.filter { it.type != "AUDIO" && it.data.isNotBlank() }.map { it.type to it.data }, dark, Modifier.fillMaxWidth().height(180.dp))
             OutlinedTextField(tags, { tags = it }, label = { Text("Tags (e.g. #physics #mechanics)") }, modifier = Modifier.fillMaxWidth())
             err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(32.dp))
@@ -268,6 +330,8 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
     var face by remember { mutableStateOf(0) }
     var step by remember { mutableStateOf(0) }
     var done by remember { mutableStateOf(0) }
+    var flipping by remember { mutableStateOf(false) }
+    val rot = remember { Animatable(0f) }
     LaunchedEffect(Unit) { queue = dao.queue(deckId, System.currentTimeMillis()) }
     val q = queue
     val curId = q?.firstOrNull()
@@ -276,6 +340,17 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
             card = dao.card(curId)
             faceList = dao.items(curId).groupBy { it.face }.toSortedMap().values.toList()
             face = 0
+        }
+    }
+    fun advance() {
+        if (flipping || face >= faceList.lastIndex) return
+        flipping = true
+        scope.launch {
+            rot.animateTo(90f, tween(140))
+            face++
+            rot.snapTo(-90f)
+            rot.animateTo(0f, tween(140))
+            flipping = false
         }
     }
     fun rate(r: Int) {
@@ -294,7 +369,7 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Study  ($done done)") },
-            navigationIcon = { TextButton(onClick = back) { Text("Back") } }
+            navigationIcon = { IconButton(onClick = back) { Icon(Icons.Default.Close, contentDescription = "Close") } }
         )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -308,16 +383,24 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                 }
                 card?.id != curId || faceList.isEmpty() -> Text("Loading...")
                 else -> {
-                    val last = face >= faceList.lastIndex
-                    Text("FACE ${face + 1} / ${faceList.size}", style = MaterialTheme.typography.labelLarge)
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        FaceView(faceList[face].map { it.type to it.data }, dark, Modifier.fillMaxSize())
-                        Box(Modifier.matchParentSize().pointerInput(face, faceList.size) {
-                            detectTapGestures { if (!last) face++ }
+                    val fi = face.coerceIn(0, faceList.lastIndex)
+                    val last = fi >= faceList.lastIndex
+                    val faceItems = faceList[fi]
+                    Text("FACE ${fi + 1} / ${faceList.size}", style = MaterialTheme.typography.labelLarge)
+                    Box(
+                        Modifier.weight(1f).fillMaxWidth().graphicsLayer {
+                            rotationY = rot.value
+                            cameraDistance = 12f * density
+                        }
+                    ) {
+                        FaceView(faceItems.filter { it.type != "AUDIO" }.map { it.type to it.data }, dark, Modifier.fillMaxSize())
+                        Box(Modifier.matchParentSize().pointerInput(fi, faceList.size) {
+                            detectTapGestures { advance() }
                         })
                     }
+                    faceItems.filter { it.type == "AUDIO" }.forEach { AudioPlayButton(it.data) }
                     if (!last) {
-                        Text("Tap to continue", Modifier.padding(12.dp), textAlign = TextAlign.Center)
+                        Text("Tap card to turn", Modifier.padding(12.dp), textAlign = TextAlign.Center)
                     } else {
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
