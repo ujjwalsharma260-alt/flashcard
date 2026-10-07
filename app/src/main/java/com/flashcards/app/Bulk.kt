@@ -15,6 +15,10 @@ object Bulk {
         db.withTransaction { for (c in ids.chunked(CH)) db.dao().setFav(c, v) }
     }
 
+    suspend fun setBookmark(db: Db, ids: List<Long>, v: Int) {
+        db.withTransaction { for (c in ids.chunked(CH)) db.dao().setBookmark(c, v) }
+    }
+
     suspend fun setSuspended(db: Db, ids: List<Long>, v: Int) {
         db.withTransaction { for (c in ids.chunked(CH)) db.dao().setSusp(c, v) }
     }
@@ -74,7 +78,7 @@ object Bulk {
 
     private suspend fun copyCard(ctx: Context, dao: AppDao, cardId: Long, deckId: Long): Long? {
         val c = dao.card(cardId) ?: return null
-        val nid = dao.insertCard(Flashcard(deckId = deckId, tags = c.tags, fav = c.fav))
+        val nid = dao.insertCard(Flashcard(deckId = deckId, tags = c.tags, fav = c.fav, bookmark = c.bookmark))
         val items = dao.items(cardId).map {
             Item(
                 cardId = nid, face = it.face, pos = it.pos, type = it.type,

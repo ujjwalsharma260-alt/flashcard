@@ -28,6 +28,11 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import kotlin.math.max
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -47,7 +52,9 @@ sealed class Screen {
     object Home : Screen()
     data class DeckS(val id: Long, val q: String = "") : Screen()
     data class Edit(val deckId: Long, val cardId: Long, val ink: Boolean = false) : Screen()
-    data class Review(val deckId: Long) : Screen()
+    data class Review(val deckId: Long, val mode: Int = 0) : Screen()
+    object Settings : Screen()
+    object Help : Screen()
     data class Import(val deckId: Long, val text: String) : Screen()
 }
 
@@ -106,37 +113,45 @@ fun BackIcon(onClick: () -> Unit) {
 @Composable
 fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
     val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
-    val pop = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+    val holder = rememberSaveableStateHolder()
+    fun keyOf(i: Int, sc: Screen): String = "$i|" + (if (sc is Screen.Import) "import" else sc.toString())
+    val pop = {
+        if (stack.size > 1) {
+            holder.removeState(keyOf(stack.lastIndex, stack.last()))
+            stack.removeAt(stack.lastIndex)
+        }
+    }
     BackHandler(stack.size > 1) { pop() }
-    when (val cur = stack.last()) {
-        is Screen.Home -> HomeScreen(
-            db, theme, onTheme,
-            { stack.add(Screen.DeckS(it)) },
-            { q -> stack.add(Screen.DeckS(0L, q)) },
-            { d, c -> stack.add(Screen.Edit(d, c)) },
-            { d, t -> stack.add(Screen.Import(d, t)) }
-        )
-        is Screen.DeckS -> DeckScreen(
-            db, cur.id, cur.q, { pop() },
-            { d, c -> stack.add(Screen.Edit(d, c)) },
-            { d -> stack.add(Screen.Edit(d, 0L, true)) },
-            { stack.add(Screen.Review(cur.id)) },
-            { t -> stack.add(Screen.Import(cur.id, t)) }
-        )
-        is Screen.Edit -> EditorScreen(db, cur.deckId, cur.cardId, cur.ink, dark) { pop() }
-        is Screen.Review -> ReviewScreen(db, cur.deckId, dark) { pop() }
-        is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
+    val cur = stack.last()
+    // keeps scroll position and search text of screens underneath (e.g. the deck list) while you edit a card
+    holder.SaveableStateProvider(keyOf(stack.lastIndex, cur)) {
+        when (cur) {
+            is Screen.Home -> HomeScreen(
+                db, theme, onTheme,
+                { stack.add(Screen.DeckS(it)) },
+                { q -> stack.add(Screen.DeckS(0L, q)) },
+                { d, c -> stack.add(Screen.Edit(d, c)) },
+                { d, t -> stack.add(Screen.Import(d, t)) },
+                { stack.add(Screen.Settings) },
+                { stack.add(Screen.Help) }
+            )
+            is Screen.DeckS -> DeckScreen(
+                db, cur.id, cur.q, { pop() },
+                { d, c -> stack.add(Screen.Edit(d, c)) },
+                { d -> stack.add(Screen.Edit(d, 0L, true)) },
+                { m -> stack.add(Screen.Review(cur.id, m)) },
+                { t -> stack.add(Screen.Import(cur.id, t)) }
+            )
+            is Screen.Edit -> EditorScreen(db, cur.deckId, cur.cardId, cur.ink, dark) { pop() }
+            is Screen.Review -> ReviewScreen(db, cur.deckId, cur.mode) { pop() }
+            is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
+            is Screen.Settings -> SettingsScreen { pop() }
+            is Screen.Help -> HelpScreen { pop() }
+        }
     }
 }
 
 // ---------- editor ----------
-
-private val formulaButtons = listOf(
-    "x²" to "^{2}", "xₙ" to "_{n}", "√" to "\\sqrt{x}", "a/b" to "\\frac{a}{b}",
-    "∫" to "\\int_{a}^{b} f(x)\\,dx", "Σ" to "\\sum_{i=1}^{n} i", "π" to "\\pi", "α" to "\\alpha",
-    "β" to "\\beta", "θ" to "\\theta", "Δ" to "\\Delta", "vec" to "\\vec{F}", "lim" to "\\lim_{x\\to 0}",
-    "d/dx" to "\\frac{d}{dx}", "×10ⁿ" to "\\times 10^{n}", "matrix" to "\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}"
-)
 
 @Composable
 fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean, back: () -> Unit) {
@@ -156,6 +171,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
     var zoom by remember { mutableStateOf<String?>(null) }
     var fav by remember { mutableStateOf(false) }
     var susp by remember { mutableStateOf(false) }
+    var bookmark by remember { mutableStateOf(false) }
     var editMenu by remember { mutableStateOf(false) }
     var inkEdit by remember { mutableStateOf<Int?>(null) }
 
@@ -168,6 +184,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
             newTags = c?.tags ?: ""
             fav = (c?.fav ?: 0) == 1
             susp = (c?.suspended ?: 0) == 1
+            bookmark = (c?.bookmark ?: 0) == 1
             newFaces = its.groupBy { it.face }.toSortedMap().values.map { l -> l.map { EItem(it.type, it.data) } }
         }
         if (reload == 0) {
@@ -208,9 +225,9 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
         scope.launch {
             val cid: Long
             if (cardId == 0L) {
-                cid = dao.insertCard(Flashcard(deckId = deckId, tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0))
+                cid = dao.insertCard(Flashcard(deckId = deckId, tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0, bookmark = if (bookmark) 1 else 0))
             } else {
-                dao.card(cardId)?.let { dao.updateCard(it.copy(tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0)) }
+                dao.card(cardId)?.let { dao.updateCard(it.copy(tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0, bookmark = if (bookmark) 1 else 0)) }
                 dao.deleteItems(cardId)
                 cid = cardId
             }
@@ -219,13 +236,6 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
             })
             back()
         }
-    }
-
-    fun insertFormula(t: String) {
-        val cur = faces[curIdx()].toMutableList()
-        val target = if (focusIdx in cur.indices && cur[focusIdx].type == "LATEX") focusIdx else cur.indexOfLast { it.type == "LATEX" }
-        if (target >= 0) cur[target] = cur[target].copy(data = cur[target].data + t) else cur.add(EItem("LATEX", t))
-        setFace(cur)
     }
 
     fun addImage(uri: Uri) {
@@ -244,6 +254,13 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
             title = { Text(if (cardId == 0L) "New card" else "Edit card") },
             navigationIcon = { BackIcon(back) },
             actions = {
+                IconButton(onClick = {
+                    val nv = !bookmark
+                    bookmark = nv
+                    if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(bookmark = if (nv) 1 else 0)) } }
+                }) {
+                    Text("🔖", modifier = Modifier.alpha(if (bookmark) 1f else 0.35f))
+                }
                 IconButton(onClick = {
                     val nv = !fav
                     fav = nv
@@ -315,7 +332,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                 } else if (e.type == "INK") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f).padding(vertical = 4.dp).clickable { inkEdit = i }) {
-                            InkView(e.data, Modifier.fillMaxWidth().heightIn(max = 240.dp), placeholder = true)
+                            InkView(e.data, Modifier.fillMaxWidth().heightIn(max = 400.dp), placeholder = true)
                         }
                         IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove handwriting")
@@ -333,7 +350,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                         OutlinedTextField(
                             value = e.data,
                             onValueChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = e.copy(data = nv) }) },
-                            label = { Text(if (e.type == "LATEX") "Formula (LaTeX)" else "Text") },
+                            label = { Text(if (e.type == "LATEX") "Formula: paste LaTeX here" else "Text (pasted LaTeX also shows as maths)") },
                             textStyle = if (e.type == "LATEX") MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }
                         )
@@ -357,9 +374,6 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                     setFace(l + EItem("INK", ""))
                     inkEdit = l.size
                 }) { Text("✍ Handwriting") }
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                formulaButtons.forEach { (label, tpl) -> FilledTonalButton(onClick = { insertFormula(tpl) }, contentPadding = PaddingValues(horizontal = 12.dp)) { Text(label) } }
             }
             Text("Preview", style = MaterialTheme.typography.labelMedium)
             FaceView(
@@ -403,19 +417,29 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
 // ---------- review ----------
 
 @Composable
-fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
+fun ReviewScreen(db: Db, deckId: Long, mode: Int, back: () -> Unit) {
     val dao = db.dao()
     val scope = rememberCoroutineScope()
     var queue by remember { mutableStateOf<List<Long>?>(null) }
+    var setNo by remember { mutableStateOf(1) }
+    var setTotal by remember { mutableStateOf(0) }
+    var missed by remember { mutableStateOf(setOf<Long>()) }
     var card by remember { mutableStateOf<Flashcard?>(null) }
     var faceList by remember { mutableStateOf<List<List<Item>>>(emptyList()) }
     var face by remember { mutableStateOf(0) }
     var step by remember { mutableStateOf(0) }
-    var done by remember { mutableStateOf(0) }
     var flipping by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf<String?>(null) }
     val rot = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { queue = dao.queue(deckId, System.currentTimeMillis()) }
+    val fade = remember { Animatable(1f) }
+
+    LaunchedEffect(setNo) {
+        queue = null
+        val q0 = Session.build(dao, deckId, mode, System.currentTimeMillis())
+        missed = emptySet()
+        setTotal = q0.size
+        queue = q0
+    }
     val q = queue
     val curId = q?.firstOrNull()
     LaunchedEffect(curId, step) {
@@ -429,10 +453,20 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
         if (flipping || face >= faceList.lastIndex) return
         flipping = true
         scope.launch {
-            rot.animateTo(90f, tween(140))
-            face++
-            rot.snapTo(-90f)
-            rot.animateTo(0f, tween(140))
+            when (AppSettings.flipStyle) {
+                2 -> { face++ }
+                1 -> {
+                    rot.animateTo(90f, tween(150))
+                    face++
+                    rot.snapTo(-90f)
+                    rot.animateTo(0f, tween(150))
+                }
+                else -> {
+                    fade.animateTo(0f, tween(90))
+                    face++
+                    fade.animateTo(1f, tween(130))
+                }
+            }
             flipping = false
         }
     }
@@ -440,29 +474,48 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
         val c = card ?: return
         if (q == null || c.id != curId) return
         val now = System.currentTimeMillis()
-        val n = Scheduler.next(c, r, now)
+        val onSchedule = c.state == 0 || c.due <= now
+        val n = if (onSchedule) {
+            Scheduler.next(c, r, now, if (AppSettings.streakBonus) AppSettings.streakN else 0, AppSettings.streakMult.toDouble())
+        } else {
+            Scheduler.statsOnly(c, r, now)   // studied early (e.g. a Bookmarked session): only count right/wrong
+        }
         scope.launch {
             dao.updateCard(n)
             dao.log(ReviewLog(cardId = c.id, time = now, rating = r, interval = n.interval))
         }
-        queue = q.drop(1) + (if (r == 0) listOf(c.id) else emptyList())
-        done++
+        if (r == 0) missed = missed + c.id
+        val again = r == 0 && AppSettings.retryMissed
+        queue = q.drop(1) + (if (again) listOf(c.id) else emptyList())
         step++
     }
+
+    val title = if (mode == 0) "Set $setNo" else listOf("", "Bookmarked", "Favorites", "Weak cards", "Missed today")[mode.coerceIn(0, 4)]
+    val cardShape = RoundedCornerShape(28.dp)
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Study  ($done done)") },
+            title = { Text(title) },
             navigationIcon = { IconButton(onClick = back) { Icon(Icons.Default.Close, contentDescription = "Close") } }
         )
     }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(pad).fillMaxSize().padding(horizontal = 12.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             when {
                 q == null -> Text("Loading...")
                 q.isEmpty() -> {
                     Spacer(Modifier.height(48.dp))
-                    Text("All done for now! 🎉", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = back) { Text("Back to deck") }
+                    if (setTotal == 0) {
+                        Text("Nothing to study right now 🎉", style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = back) { Text("Back to deck") }
+                    } else {
+                        Text("Set $setNo complete! 🎉", style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.height(8.dp))
+                        Text("You studied $setTotal cards. Missed at first: ${missed.size}")
+                        Spacer(Modifier.height(20.dp))
+                        Button(onClick = { setNo++ }) { Text("Next set") }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = back) { Text("Finish") }
+                    }
                 }
                 card?.id != curId || faceList.isEmpty() -> Text("Loading...")
                 else -> {
@@ -473,30 +526,56 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                     val imgs = faceItems.filter { it.type == "IMAGE" }
                     val inks = faceItems.filter { it.type == "INK" }
                     val auds = faceItems.filter { it.type == "AUDIO" }
-                    Text("FACE ${fi + 1} / ${faceList.size}", style = MaterialTheme.typography.labelLarge)
+                    val hasText = textItems.isNotEmpty()
+                    val visuals = imgs.isNotEmpty() || inks.isNotEmpty()
+                    val left = q.distinct().size
+                    Text("$left cards left   ·   missed so far: ${missed.size}   ·   face ${fi + 1}/${faceList.size}", style = MaterialTheme.typography.labelMedium)
+                    LinearProgressIndicator(
+                        progress = { (1f - left.toFloat() / max(setTotal, 1)).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                    )
                     Box(
-                        Modifier.weight(1f).fillMaxWidth().graphicsLayer {
-                            rotationY = rot.value
-                            cameraDistance = 12f * density
-                        }
-                    ) {
-                        Column(Modifier.fillMaxSize()) {
-                            if (textItems.isNotEmpty() || (imgs.isEmpty() && inks.isEmpty())) {
-                                Box(Modifier.weight(1f).fillMaxWidth()) {
-                                    FaceView(textItems.map { it.type to it.data }, dark, Modifier.fillMaxSize())
-                                    Box(Modifier.matchParentSize().pointerInput(fi, faceList.size) {
-                                        detectTapGestures { advance() }
-                                    })
-                                }
+                        Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp)
+                            .graphicsLayer {
+                                rotationY = rot.value
+                                alpha = fade.value
+                                cameraDistance = 12f * density
+                                scaleX = 0.96f + 0.04f * fade.value
+                                scaleY = 0.96f + 0.04f * fade.value
                             }
-                            if (imgs.isNotEmpty() || inks.isNotEmpty()) {
-                                Column(
-                                    Modifier.then(if (textItems.isEmpty()) Modifier.weight(1f) else Modifier.heightIn(max = 220.dp))
-                                        .fillMaxWidth().verticalScroll(rememberScrollState())
-                                ) {
-                                    imgs.forEach { im -> ImageThumb(im.data, Modifier.fillMaxWidth().padding(4.dp), onClick = { zoom = im.data }) }
-                                    inks.forEach { ik ->
-                                        InkView(ik.data, Modifier.fillMaxWidth().padding(4.dp).pointerInput(fi) { detectTapGestures { advance() } })
+                            .clip(cardShape)
+                            .background(Color.Black)
+                            .border(2.dp, Color(0xFF5C5C66), cardShape)
+                    ) {
+                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.then(if (hasText || !visuals) Modifier.weight(1f) else Modifier.height(1.dp)).fillMaxWidth()) {
+                                FaceView(textItems.map { it.type to it.data }, true, Modifier.fillMaxSize())
+                                Box(Modifier.matchParentSize().pointerInput(fi, faceList.size) {
+                                    detectTapGestures { advance() }
+                                })
+                            }
+                            if (visuals) {
+                                if (!hasText && imgs.isEmpty() && inks.size == 1) {
+                                    InkView(
+                                        inks[0].data,
+                                        Modifier.weight(1f).fillMaxWidth().pointerInput(fi) { detectTapGestures { advance() } },
+                                        fit = true, color = Color.White
+                                    )
+                                } else {
+                                    Box(
+                                        Modifier.then(if (hasText) Modifier.heightIn(max = 240.dp) else Modifier.weight(1f)).fillMaxWidth(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                                            imgs.forEach { im -> ImageThumb(im.data, Modifier.fillMaxWidth().padding(4.dp), onClick = { zoom = im.data }) }
+                                            inks.forEach { ik ->
+                                                InkView(
+                                                    ik.data,
+                                                    Modifier.fillMaxWidth().padding(4.dp).pointerInput(fi) { detectTapGestures { advance() } },
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -504,9 +583,9 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                     }
                     auds.forEach { AudioPlayButton(it.data) }
                     if (!last) {
-                        Button(onClick = { advance() }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Show next face  (or tap the card)") }
+                        Button(onClick = { advance() }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Show next face  (or tap the card)") }
                     } else {
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
                                 Button(onClick = { rate(i) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
                             }

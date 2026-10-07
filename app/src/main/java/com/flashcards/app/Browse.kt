@@ -9,6 +9,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlin.math.max
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -39,7 +42,7 @@ fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () ->
         )
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text((if (r.fav == 1) "★ " else "") + (r.preview ?: "(handwriting / image / voice)").take(120), maxLines = 2)
+            Text((if (r.fav == 1) "★ " else "") + (if (r.bookmark == 1) "🔖 " else "") + (r.preview ?: "(handwriting / image / voice)").take(120), maxLines = 2)
             val extra = listOfNotNull(stateLabel(r.state, r.suspended), if (showDeck) r.deckName else null, r.tags.ifBlank { null })
             Text(extra.joinToString("  ·  "), style = MaterialTheme.typography.labelSmall)
         }
@@ -51,14 +54,16 @@ fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () ->
 @Composable
 fun HomeScreen(
     db: Db, theme: Int, onTheme: (Int) -> Unit,
-    open: (Long) -> Unit, browse: (String) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit
+    open: (Long) -> Unit, browse: (String) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit,
+    openSettings: () -> Unit, openHelp: () -> Unit
 ) {
     val dao = db.dao()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val flow = remember { dao.decks(System.currentTimeMillis()) }
     val decks by flow.collectAsState(emptyList())
-    var q by remember { mutableStateOf("") }
+    var q by rememberSaveable { mutableStateOf("") }
+    val homeList = rememberLazyListState()
     val hitFlow = remember(q) {
         if (q.isBlank()) flowOf(emptyList<CardRow>()) else dao.browse(CardSearch.build(q.trim(), 0L, System.currentTimeMillis()))
     }
@@ -93,6 +98,8 @@ fun HomeScreen(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; openSettings() })
+                        DropdownMenuItem(text = { Text("Help") }, onClick = { menu = false; openHelp() })
                         DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
                         DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
                         DropdownMenuItem(text = { Text("Export backup (Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
@@ -116,7 +123,7 @@ fun HomeScreen(
                 OutlinedButton(onClick = { browse("") }) { Text("All cards") }
             }
             if (shown.isEmpty() && hits.isEmpty()) Text("No decks yet. Tap + Create Deck.", Modifier.padding(24.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
+            LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(shown, key = { "d${it.id}" }) { d ->
                     Card(onClick = { open(d.id) }, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
@@ -153,7 +160,7 @@ fun HomeScreen(
 @Composable
 fun DeckScreen(
     db: Db, deckId: Long, initialQuery: String, back: () -> Unit,
-    edit: (Long, Long) -> Unit, newInk: (Long) -> Unit, study: () -> Unit, importText: (String) -> Unit
+    edit: (Long, Long) -> Unit, newInk: (Long) -> Unit, study: (Int) -> Unit, importText: (String) -> Unit
 ) {
     val dao = db.dao()
     val ctx = LocalContext.current
@@ -161,8 +168,14 @@ fun DeckScreen(
     val infoFlow = remember { dao.decks(System.currentTimeMillis()) }
     val infos by infoFlow.collectAsState(emptyList())
     val info = infos.firstOrNull { it.id == deckId }
-    var q by remember { mutableStateOf(initialQuery) }
-    val cardFlow = remember(q) { dao.browse(CardSearch.build(q, deckId, System.currentTimeMillis())) }
+    var q by rememberSaveable { mutableStateOf(initialQuery) }
+    var newest by rememberSaveable { mutableStateOf(deckId == 0L) }
+    val deckList = rememberLazyListState()
+    var firstRun by remember { mutableStateOf(true) }
+    LaunchedEffect(q, newest) { if (firstRun) firstRun = false else deckList.scrollToItem(0) }
+    val cardFlow = remember(q, newest) { dao.browse(CardSearch.build(q, deckId, System.currentTimeMillis(), newest)) }
+    val countsFlow = remember { dao.studyCounts(deckId, max(1, AppSettings.streakN), startOfTodayMs()) }
+    val counts by countsFlow.collectAsState(null)
     val cards by cardFlow.collectAsState(emptyList())
     val tagFlow = remember { dao.tagLists(deckId) }
     val tagLists by tagFlow.collectAsState(emptyList())
@@ -222,6 +235,8 @@ fun DeckScreen(
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Actions") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("⭐ Favorite") }, onClick = { menu = false; runBulk("Favorited") { Bulk.setFav(db, it, 1) } })
+                            DropdownMenuItem(text = { Text("🔖 Bookmark") }, onClick = { menu = false; runBulk("Bookmarked") { Bulk.setBookmark(db, it, 1) } })
+                            DropdownMenuItem(text = { Text("Remove bookmark") }, onClick = { menu = false; runBulk("Updated") { Bulk.setBookmark(db, it, 0) } })
                             DropdownMenuItem(text = { Text("Remove favorite") }, onClick = { menu = false; runBulk("Updated") { Bulk.setFav(db, it, 0) } })
                             DropdownMenuItem(text = { Text("Suspend") }, onClick = { menu = false; runBulk("Suspended") { Bulk.setSuspended(db, it, 1) } })
                             DropdownMenuItem(text = { Text("Unsuspend") }, onClick = { menu = false; runBulk("Unsuspended") { Bulk.setSuspended(db, it, 0) } })
@@ -278,23 +293,48 @@ fun DeckScreen(
     }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
             if (deckId != 0L) {
+                val ready = (info?.let { it.fresh + it.due } ?: 0)
+                val setSize = AppSettings.sessionSize
                 Text("${info?.total ?: 0} cards  |  ${info?.fresh ?: 0} new  |  ${info?.due ?: 0} due")
-                Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = study, enabled = (info?.let { it.fresh + it.due } ?: 0) > 0) { Text("Study") }
+                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Cards per study set", style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(10, 20, 30, 50, 0).forEach { n ->
+                                FilterChip(
+                                    selected = setSize == n,
+                                    onClick = { AppSettings.sessionSize = n; AppSettings.save(ctx) },
+                                    label = { Text(if (n == 0) "All" else "$n") }
+                                )
+                            }
+                        }
+                        Button(onClick = { study(0) }, enabled = ready > 0, modifier = Modifier.fillMaxWidth()) {
+                            Text("Study  (" + (if (setSize in 1 until ready) setSize else ready) + " cards)")
+                        }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(onClick = { study(1) }, enabled = (counts?.bookmarked ?: 0) > 0) { Text("🔖 Bookmarked (${counts?.bookmarked ?: 0})") }
+                            OutlinedButton(onClick = { study(2) }, enabled = (counts?.favorites ?: 0) > 0) { Text("⭐ Favorites (${counts?.favorites ?: 0})") }
+                            OutlinedButton(onClick = { study(3) }, enabled = (counts?.weak ?: 0) > 0) { Text("⚠ Weak (${counts?.weak ?: 0})") }
+                            OutlinedButton(onClick = { study(4) }, enabled = (counts?.missed ?: 0) > 0) { Text("❌ Missed today (${counts?.missed ?: 0})") }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { edit(deckId, 0L) }) { Text("+ Add card") }
                     OutlinedButton(onClick = { newInk(deckId) }) { Text("✍ Pen card") }
                 }
             }
             OutlinedTextField(q, { q = it }, label = { Text("Search, or use the filters below") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            val quick = listOf("favorite", "suspended", "state:new", "state:learning", "state:review", "due", "overdue", "has:image", "has:audio", "added:today", "added:7d", "added:30d")
+            val quick = listOf("favorite", "bookmarked", "suspended", "state:new", "state:learning", "state:review", "due", "overdue", "has:image", "has:audio", "added:today", "added:7d", "added:30d")
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                (quick + allTags.map { "tag:" + it.trimStart('#') }).forEach { t ->
+                FilterChip(selected = newest, onClick = { newest = !newest }, label = { Text("↓ Newest first") })
+                listOf<String>().plus(quick).plus(allTags.map { "tag:" + it.trimStart('#') }).forEach { t ->
                     FilterChip(selected = CardSearch.has(q, t), onClick = { q = CardSearch.toggle(q, t) }, label = { Text(t) })
                 }
             }
             Text("${cards.size} cards shown" + (if (selecting) "  ·  long-press to select more" else "  ·  long-press a card to select"), style = MaterialTheme.typography.labelSmall)
             Spacer(Modifier.height(4.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(state = deckList, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(cards, key = { it.id }) { c ->
                     CardRowItem(
                         c, c.id in selected, deckId == 0L,

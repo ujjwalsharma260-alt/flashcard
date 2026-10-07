@@ -25,6 +25,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -216,16 +220,24 @@ private fun eraseAt(strokes: List<InkStroke>, cx: Float, cy: Float, r: Float): L
 
 // ---------- display ----------
 
-/** Read-only handwriting. Scales to the available width, sharp at any size. */
+/** Read-only handwriting. fit = true scales it to fill the given box (centred); otherwise it fills the width. */
 @Composable
-fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = false) {
+fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = false, fit: Boolean = false, color: Color? = null) {
     val doc = remember(data) { Ink.parse(data) }
-    val fg = MaterialTheme.colorScheme.onSurface
+    val fg = color ?: MaterialTheme.colorScheme.onSurface
     if (doc.strokes.isEmpty()) {
         if (placeholder) {
-            Box(modifier.height(90.dp).border(1.dp, MaterialTheme.colorScheme.outline, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                Text("✍ Tap to write")
-            }
+            Box(
+                modifier.height(120.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) { Text("✍ Tap to write") }
+        }
+    } else if (fit) {
+        Canvas(modifier) {
+            val sc = min(size.width / doc.w, size.height / doc.h)
+            val ox = (size.width - doc.w * sc) / 2f
+            val oy = (size.height - doc.h * sc) / 2f
+            drawInk(doc.strokes, sc, ox, oy, fg)
         }
     } else {
         Canvas(modifier.aspectRatio(doc.w / doc.h)) {
@@ -252,6 +264,8 @@ fun InkEditorDialog(initial: String, onDone: (String) -> Unit, onCancel: () -> U
 @Composable
 private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel: () -> Unit) {
     val doc0 = remember { Ink.parse(initial) }
+    val isNew = initial.isBlank()
+    var cvs by remember { mutableStateOf(IntSize.Zero) }
     var strokes by remember { mutableStateOf(doc0.strokes) }
     val undo = remember { mutableStateListOf<List<InkStroke>>() }
     val redo = remember { mutableStateListOf<List<InkStroke>>() }
@@ -269,6 +283,10 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
     val pageBg = MaterialTheme.colorScheme.surface
     val outline = MaterialTheme.colorScheme.outline
 
+    // A new page takes the shape of the writing area, so it uses the whole screen.
+    fun pageH(w: Int, h: Int): Float =
+        if (isNew && w > 0 && h > 0) (doc0.w * h / w).coerceIn(500f, 2600f) else doc0.h
+
     fun commit(before: List<InkStroke>) {
         if (strokes !== before) {
             undo.add(before)
@@ -277,7 +295,7 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
@@ -286,7 +304,7 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
             IconButton(onClick = { if (undo.isNotEmpty() || redo.isNotEmpty()) confirmClose = true else onCancel() }) {
                 Icon(Icons.Default.Close, contentDescription = "Discard")
             }
-            IconButton(onClick = { onDone(Ink.serialize(InkDoc(doc0.w, doc0.h, strokes))) }) {
+            IconButton(onClick = { onDone(Ink.serialize(InkDoc(doc0.w, pageH(cvs.width, cvs.height), strokes))) }) {
                 Icon(Icons.Default.Check, contentDescription = "Done")
             }
             TextButton(enabled = undo.isNotEmpty(), onClick = {
@@ -319,101 +337,113 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
             Switch(checked = penOnly, onCheckedChange = { penOnly = it })
             Text("Pen only")
         }
-        Spacer(Modifier.height(6.dp))
-        Canvas(
-            Modifier.weight(1f).fillMaxWidth().pointerInput(tool, colorIdx, widthIdx, penOnly) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val stylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
-                    val nowMs = System.currentTimeMillis()
-                    // palm rejection: ignore fingers while "pen only" is on, or right after the stylus was used
-                    if (!stylus && (penOnly || nowMs - lastStylus < 900L)) return@awaitEachGesture
-                    if (stylus) lastStylus = nowMs
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { cvs = it }) {
+            // Layer 1: the page and finished strokes. It has its own layer, so it is NOT redrawn while you write.
+            Canvas(Modifier.fillMaxSize().graphicsLayer { }) {
+                val ph = pageH(size.width.toInt(), size.height.toInt())
+                val sc = min(size.width / doc0.w, size.height / ph)
+                val ox = (size.width - doc0.w * sc) / 2f
+                val oy = (size.height - ph * sc) / 2f
+                drawRect(pageBg, Offset(ox, oy), Size(doc0.w * sc, ph * sc))
+                drawRect(outline, Offset(ox, oy), Size(doc0.w * sc, ph * sc), style = Stroke(2f))
+                drawInk(strokes, sc, ox, oy, fg)
+            }
+            // Layer 2: the stroke you are writing right now + touch handling.
+            Canvas(
+                Modifier.fillMaxSize().pointerInput(tool, colorIdx, widthIdx, penOnly) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val stylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
+                        val nowMs = System.currentTimeMillis()
+                        // palm rejection: ignore fingers while "pen only" is on, or right after the stylus was used
+                        if (!stylus && (penOnly || nowMs - lastStylus < 900L)) return@awaitEachGesture
+                        if (stylus) lastStylus = nowMs
 
-                    val sc = min(size.width / doc0.w, size.height / doc0.h)
-                    val ox = (size.width - doc0.w * sc) / 2f
-                    val oy = (size.height - doc0.h * sc) / 2f
-                    fun toPage(o: Offset) = Offset(((o.x - ox) / sc).coerceIn(0f, doc0.w), ((o.y - oy) / sc).coerceIn(0f, doc0.h))
+                        val ph = pageH(size.width, size.height)
+                        val sc = min(size.width / doc0.w, size.height / ph)
+                        val ox = (size.width - doc0.w * sc) / 2f
+                        val oy = (size.height - ph * sc) / 2f
+                        fun toPage(o: Offset) = Offset(((o.x - ox) / sc).coerceIn(0f, doc0.w), ((o.y - oy) / sc).coerceIn(0f, ph))
 
-                    val erasing = tool == 1 || down.type == PointerType.Eraser
-                    val before = strokes
+                        val erasing = tool == 1 || down.type == PointerType.Eraser
+                        val before = strokes
 
-                    if (erasing) {
-                        var last = toPage(down.position)
-                        eraserPos = last
-                        strokes = eraseAt(strokes, last.x, last.y, ERASER_R)
-                        do {
-                            val ev = awaitPointerEvent()
-                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                            val positions = ch.historical.map { it.position } + ch.position
-                            for (po in positions) {
-                                val cur = toPage(po)
-                                val d = hypot(cur.x - last.x, cur.y - last.y)
-                                val steps = max(1, ceil(d / (ERASER_R / 2f)).toInt())
-                                for (k in 1..steps) {
-                                    val t = k / steps.toFloat()
-                                    strokes = eraseAt(strokes, last.x + (cur.x - last.x) * t, last.y + (cur.y - last.y) * t, ERASER_R)
-                                }
-                                last = cur
-                            }
+                        if (erasing) {
+                            var last = toPage(down.position)
                             eraserPos = last
-                            ch.consume()
-                        } while (ch.pressed)
-                        eraserPos = null
-                        commit(before)
-                    } else {
-                        livePts.clear()
-                        val base = widths[widthIdx]
-                        fun addRaw(po: Offset, pr: Float) {
-                            val pg = toPage(po)
-                            val p = if (stylus) pr.coerceIn(0.12f, 1f) else 0.5f
-                            if (livePts.isEmpty()) {
-                                livePts.add(InkPt(pg.x, pg.y, p))
-                            } else {
-                                val prev = livePts[livePts.size - 1]
-                                val dist = hypot(pg.x - prev.x, pg.y - prev.y)
-                                val a = 0.35f + min(dist / 12f, 0.55f)   // low-pass filter: removes jitter, little lag when moving fast
-                                val nx = prev.x + (pg.x - prev.x) * a
-                                val ny = prev.y + (pg.y - prev.y) * a
-                                val np = prev.p * 0.7f + p * 0.3f
-                                if (hypot(nx - prev.x, ny - prev.y) >= 0.4f) livePts.add(InkPt(nx, ny, np))
-                            }
-                        }
-                        var lastRaw = down.position
-                        addRaw(down.position, down.pressure)
-                        tick++
-                        do {
-                            val ev = awaitPointerEvent()
-                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                            for (h in ch.historical) addRaw(h.position, ch.pressure)   // no skipped samples
-                            addRaw(ch.position, ch.pressure)
-                            lastRaw = ch.position
-                            tick++
-                            ch.consume()
-                        } while (ch.pressed)
-                        if (livePts.isNotEmpty()) {
-                            val e = toPage(lastRaw)
-                            livePts.add(InkPt(e.x, e.y, livePts[livePts.size - 1].p))
-                            strokes = strokes + InkStroke(colorIdx, base, ArrayList(livePts))
+                            strokes = eraseAt(strokes, last.x, last.y, ERASER_R)
+                            do {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                val positions = ch.historical.map { it.position } + ch.position
+                                for (po in positions) {
+                                    val cur = toPage(po)
+                                    val d = hypot(cur.x - last.x, cur.y - last.y)
+                                    val steps = max(1, ceil(d / (ERASER_R / 2f)).toInt())
+                                    for (k in 1..steps) {
+                                        val t = k / steps.toFloat()
+                                        strokes = eraseAt(strokes, last.x + (cur.x - last.x) * t, last.y + (cur.y - last.y) * t, ERASER_R)
+                                    }
+                                    last = cur
+                                }
+                                eraserPos = last
+                                ch.consume()
+                            } while (ch.pressed)
+                            eraserPos = null
                             commit(before)
+                        } else {
+                            livePts.clear()
+                            val base = widths[widthIdx]
+                            fun addRaw(po: Offset, pr: Float) {
+                                val pg = toPage(po)
+                                val p = if (stylus) pr.coerceIn(0.12f, 1f) else 0.5f
+                                if (livePts.isEmpty()) {
+                                    livePts.add(InkPt(pg.x, pg.y, p))
+                                } else {
+                                    val prev = livePts[livePts.size - 1]
+                                    val dist = hypot(pg.x - prev.x, pg.y - prev.y)
+                                    val a = 0.35f + min(dist / 12f, 0.55f)   // low-pass filter: removes jitter, little lag when moving fast
+                                    val nx = prev.x + (pg.x - prev.x) * a
+                                    val ny = prev.y + (pg.y - prev.y) * a
+                                    val np = prev.p * 0.7f + p * 0.3f
+                                    if (hypot(nx - prev.x, ny - prev.y) >= 0.4f) livePts.add(InkPt(nx, ny, np))
+                                }
+                            }
+                            var lastRaw = down.position
+                            addRaw(down.position, down.pressure)
+                            tick++
+                            do {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                for (h in ch.historical) addRaw(h.position, ch.pressure)   // no skipped samples
+                                addRaw(ch.position, ch.pressure)
+                                lastRaw = ch.position
+                                tick++
+                                ch.consume()
+                            } while (ch.pressed)
+                            if (livePts.isNotEmpty()) {
+                                val e = toPage(lastRaw)
+                                livePts.add(InkPt(e.x, e.y, livePts[livePts.size - 1].p))
+                                strokes = strokes + InkStroke(colorIdx, base, ArrayList(livePts))
+                                commit(before)
+                            }
+                            livePts.clear()
+                            tick++
                         }
-                        livePts.clear()
-                        tick++
                     }
                 }
+            ) {
+                @Suppress("UNUSED_VARIABLE") val subscribe = tick
+                val ph = pageH(size.width.toInt(), size.height.toInt())
+                val sc = min(size.width / doc0.w, size.height / ph)
+                val ox = (size.width - doc0.w * sc) / 2f
+                val oy = (size.height - ph * sc) / 2f
+                if (livePts.isNotEmpty()) {
+                    drawOne(InkStroke(colorIdx, widths[widthIdx], livePts.toList()), sc, ox, oy, colorOf(colorIdx, fg))
+                }
+                eraserPos?.let { drawCircle(fg.copy(alpha = 0.6f), ERASER_R * sc, Offset(ox + it.x * sc, oy + it.y * sc), style = Stroke(2f)) }
             }
-        ) {
-            @Suppress("UNUSED_VARIABLE") val subscribe = tick
-            val sc = min(size.width / doc0.w, size.height / doc0.h)
-            val ox = (size.width - doc0.w * sc) / 2f
-            val oy = (size.height - doc0.h * sc) / 2f
-            drawRect(pageBg, Offset(ox, oy), Size(doc0.w * sc, doc0.h * sc))
-            drawRect(outline, Offset(ox, oy), Size(doc0.w * sc, doc0.h * sc), style = Stroke(2f))
-            drawInk(strokes, sc, ox, oy, fg)
-            if (livePts.isNotEmpty()) {
-                drawOne(InkStroke(colorIdx, widths[widthIdx], livePts.toList()), sc, ox, oy, colorOf(colorIdx, fg))
-            }
-            eraserPos?.let { drawCircle(fg.copy(alpha = 0.6f), ERASER_R * sc, Offset(ox + it.x * sc, oy + it.y * sc), style = Stroke(2f)) }
         }
     }
     if (confirmClose) AlertDialog(

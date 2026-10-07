@@ -25,7 +25,10 @@ data class Flashcard(
     @ColumnInfo(defaultValue = "0") val step: Int = 0,
     @ColumnInfo(defaultValue = "0") val fav: Int = 0,
     @ColumnInfo(defaultValue = "0") val suspended: Int = 0,
-    @ColumnInfo(defaultValue = "0") val created: Long = System.currentTimeMillis()
+    @ColumnInfo(defaultValue = "0") val created: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val bookmark: Int = 0,
+    @ColumnInfo(defaultValue = "0") val streak: Int = 0,
+    @ColumnInfo(defaultValue = "0") val misses: Int = 0
 )
 
 /** One piece of content on one face. type: TEXT, LATEX, IMAGE, AUDIO (data = file name for IMAGE/AUDIO). */
@@ -41,7 +44,8 @@ data class Item(
 )
 
 data class DeckInfo(val id: Long, val name: String, val total: Int, val due: Int, val fresh: Int)
-data class CardRow(val id: Long, val deckId: Long, val deckName: String, val preview: String?, val tags: String, val fav: Int, val suspended: Int, val state: Int, val due: Long)
+data class CardRow(val id: Long, val deckId: Long, val deckName: String, val preview: String?, val tags: String, val fav: Int, val suspended: Int, val state: Int, val due: Long, val bookmark: Int)
+data class StudyCounts(val bookmarked: Int, val favorites: Int, val weak: Int, val missed: Int)
 data class IdTags(val id: Long, val tags: String)
 
 @Dao
@@ -82,6 +86,22 @@ interface AppDao {
     @Query("SELECT tags FROM Flashcard WHERE (:deck=0 OR deckId=:deck) AND tags<>''")
     fun tagLists(deck: Long): Flow<List<String>>
 
+    @Query("UPDATE Flashcard SET bookmark=:v WHERE id IN (:ids)") suspend fun setBookmark(ids: List<Long>, v: Int)
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND bookmark=1 ORDER BY RANDOM() LIMIT :lim")
+    suspend fun bookmarkedIds(deck: Long, lim: Int): List<Long>
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND fav=1 ORDER BY RANDOM() LIMIT :lim")
+    suspend fun favoriteIds(deck: Long, lim: Int): List<Long>
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND misses>0 AND streak<:n ORDER BY RANDOM() LIMIT :lim")
+    suspend fun weakIds(deck: Long, n: Int, lim: Int): List<Long>
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND id IN (SELECT cardId FROM ReviewLog WHERE rating=0 AND time>=:since) ORDER BY RANDOM() LIMIT :lim")
+    suspend fun missedIds(deck: Long, since: Long, lim: Int): List<Long>
+    @Query("SELECT " +
+        "(SELECT COUNT(*) FROM Flashcard WHERE deckId=:deck AND suspended=0 AND bookmark=1) AS bookmarked, " +
+        "(SELECT COUNT(*) FROM Flashcard WHERE deckId=:deck AND suspended=0 AND fav=1) AS favorites, " +
+        "(SELECT COUNT(*) FROM Flashcard WHERE deckId=:deck AND suspended=0 AND misses>0 AND streak<:n) AS weak, " +
+        "(SELECT COUNT(*) FROM Flashcard WHERE deckId=:deck AND suspended=0 AND id IN (SELECT cardId FROM ReviewLog WHERE rating=0 AND time>=:since)) AS missed")
+    fun studyCounts(deck: Long, n: Int, since: Long): Flow<StudyCounts>
+
     @RawQuery(observedEntities = [Flashcard::class, Item::class, Deck::class])
     fun browse(query: SupportSQLiteQuery): Flow<List<CardRow>>
 
@@ -114,25 +134,51 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 3, exportSchema = false)
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN bookmark INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN streak INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN misses INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 4, exportSchema = false)
 abstract class Db : RoomDatabase() {
     abstract fun dao(): AppDao
     companion object {
         @Volatile private var inst: Db? = null
         fun get(ctx: Context): Db = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, Db::class.java, "flashcards.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { inst = it }
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { inst = it }
         }
     }
 }
 
-/** Spaced repetition: New -> Learning (1 min, 10 min) -> Review; failed Review -> Relearning. rating 0=Again 1=Hard 2=Good 3=Easy */
+/**
+ * Spaced repetition (SM-2 style, adaptive per card):
+ * New -> Learning (1 min, 10 min) -> Review; a failed Review card goes to Relearning.
+ * Each card has its own "ease": Again/Hard lower it, Easy raises it, so hard cards come back sooner.
+ * Optional streak bonus: after N correct answers in a row the next gap is multiplied (card appears less often).
+ * rating: 0=Again 1=Hard 2=Good 3=Easy
+ */
 object Scheduler {
     const val DAY = 86_400_000L
     private const val MIN = 60_000L
     private val steps = longArrayOf(1 * MIN, 10 * MIN)
 
-    fun next(c: Flashcard, rating: Int, now: Long): Flashcard {
+    private fun newStreak(c: Flashcard, rating: Int): Int = when (rating) {
+        0 -> 0
+        1 -> c.streak
+        else -> c.streak + 1
+    }
+
+    /** Only updates the statistics (used when a card is studied outside its schedule, e.g. in a Bookmarked session). */
+    fun statsOnly(c: Flashcard, rating: Int, now: Long): Flashcard =
+        c.copy(streak = newStreak(c, rating), misses = c.misses + (if (rating == 0) 1 else 0), reps = c.reps + 1, lastReview = now)
+
+    fun next(c: Flashcard, rating: Int, now: Long, streakN: Int = 0, bonus: Double = 1.0): Flashcard {
+        val streak = newStreak(c, rating)
+        val useBonus = streakN > 0 && streak >= streakN
         var state = c.state
         var step = c.step
         var iv = c.interval
@@ -152,8 +198,17 @@ object Scheduler {
             2 -> when (rating) {
                 0 -> { lapses++; ease = maxOf(1.3, ease - 0.2); iv = maxOf(1.0, iv * 0.5); state = 3; step = 0; due = now + 10 * MIN }
                 1 -> { ease = maxOf(1.3, ease - 0.15); iv = maxOf(1.0, iv * 1.2); due = now + (iv * DAY).toLong() }
-                2 -> { iv = maxOf(1.0, iv * ease); due = now + (iv * DAY).toLong() }
-                else -> { ease += 0.15; iv = maxOf(1.0, iv * ease * 1.3); due = now + (iv * DAY).toLong() }
+                2 -> {
+                    iv = maxOf(1.0, iv * ease)
+                    if (useBonus) iv *= bonus
+                    due = now + (iv * DAY).toLong()
+                }
+                else -> {
+                    ease += 0.15
+                    iv = maxOf(1.0, iv * ease * 1.3)
+                    if (useBonus) iv *= bonus
+                    due = now + (iv * DAY).toLong()
+                }
             }
             else -> when (rating) {
                 0 -> { due = now + 10 * MIN }
@@ -161,6 +216,9 @@ object Scheduler {
                 else -> { state = 2; iv = maxOf(1.0, iv * 1.3); due = now + (iv * DAY).toLong() }
             }
         }
-        return c.copy(due = due, interval = iv, ease = ease, reps = c.reps + 1, lapses = lapses, lastReview = now, state = state, step = step)
+        return c.copy(
+            due = due, interval = iv, ease = ease, reps = c.reps + 1, lapses = lapses, lastReview = now,
+            state = state, step = step, streak = streak, misses = c.misses + (if (rating == 0) 1 else 0)
+        )
     }
 }

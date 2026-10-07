@@ -16,7 +16,7 @@ object CardSearch {
     private const val BASE =
         "SELECT c.id AS id, c.deckId AS deckId, d.name AS deckName, " +
         "(SELECT data FROM Item WHERE cardId=c.id AND type IN ('TEXT','LATEX') ORDER BY face, pos LIMIT 1) AS preview, " +
-        "c.tags AS tags, c.fav AS fav, c.suspended AS suspended, c.state AS state, c.due AS due " +
+        "c.tags AS tags, c.fav AS fav, c.suspended AS suspended, c.state AS state, c.due AS due, c.bookmark AS bookmark " +
         "FROM Flashcard c JOIN Deck d ON d.id=c.deckId WHERE 1=1"
 
     private fun startOfToday(): Long {
@@ -42,7 +42,7 @@ object CardSearch {
         return out
     }
 
-    fun build(q: String, deckScope: Long, now: Long): SimpleSQLiteQuery {
+    fun build(q: String, deckScope: Long, now: Long, newestFirst: Boolean = false): SimpleSQLiteQuery {
         val sql = StringBuilder(BASE)
         val args = ArrayList<Any?>()
         if (deckScope != 0L) { sql.append(" AND c.deckId=?"); args.add(deckScope) }
@@ -64,6 +64,8 @@ object CardSearch {
             val vl = v.lowercase()
             if (low == "favorite" || low == "favorites" || low == "starred") {
                 sql.append(" AND c.fav=1")
+            } else if (low == "bookmarked" || low == "bookmark" || low == "bookmarks") {
+                sql.append(" AND c.bookmark=1")
             } else if (low == "suspended" || (key == "state" && vl == "suspended")) {
                 sql.append(" AND c.suspended=1")
             } else if (low == "due") {
@@ -105,7 +107,7 @@ object CardSearch {
                 text(t)
             }
         }
-        sql.append(" ORDER BY c.id DESC LIMIT 1000")
+        sql.append(if (newestFirst) " ORDER BY c.id DESC LIMIT 10000" else " ORDER BY c.id ASC LIMIT 10000")
         return SimpleSQLiteQuery(sql.toString(), args.toTypedArray())
     }
 
