@@ -46,7 +46,7 @@ import kotlinx.coroutines.withContext
 sealed class Screen {
     object Home : Screen()
     data class DeckS(val id: Long, val q: String = "") : Screen()
-    data class Edit(val deckId: Long, val cardId: Long) : Screen()
+    data class Edit(val deckId: Long, val cardId: Long, val ink: Boolean = false) : Screen()
     data class Review(val deckId: Long) : Screen()
     data class Import(val deckId: Long, val text: String) : Screen()
 }
@@ -119,10 +119,11 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
         is Screen.DeckS -> DeckScreen(
             db, cur.id, cur.q, { pop() },
             { d, c -> stack.add(Screen.Edit(d, c)) },
+            { d -> stack.add(Screen.Edit(d, 0L, true)) },
             { stack.add(Screen.Review(cur.id)) },
             { t -> stack.add(Screen.Import(cur.id, t)) }
         )
-        is Screen.Edit -> EditorScreen(db, cur.deckId, cur.cardId, dark) { pop() }
+        is Screen.Edit -> EditorScreen(db, cur.deckId, cur.cardId, cur.ink, dark) { pop() }
         is Screen.Review -> ReviewScreen(db, cur.deckId, dark) { pop() }
         is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
     }
@@ -138,7 +139,7 @@ private val formulaButtons = listOf(
 )
 
 @Composable
-fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> Unit) {
+fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean, back: () -> Unit) {
     val dao = db.dao()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -156,6 +157,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
     var fav by remember { mutableStateOf(false) }
     var susp by remember { mutableStateOf(false) }
     var editMenu by remember { mutableStateOf(false) }
+    var inkEdit by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(cardId, reload) {
         var newFaces: List<List<EItem>> = emptyList()
@@ -177,6 +179,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
                 dirty = true
             }
         }
+        if (cardId == 0L && ink && newFaces.isEmpty()) newFaces = listOf(listOf(EItem("INK", "")), listOf(EItem("INK", "")))
         val list = ArrayList<List<EItem>>(newFaces.take(5))
         while (list.size < 2) list.add(listOf(EItem("TEXT", "")))
         faces.clear()
@@ -309,6 +312,15 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
                         onChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = EItem("AUDIO", nv) }) },
                         onRemove = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }
                     )
+                } else if (e.type == "INK") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f).padding(vertical = 4.dp).clickable { inkEdit = i }) {
+                            InkView(e.data, Modifier.fillMaxWidth().heightIn(max = 240.dp), placeholder = true)
+                        }
+                        IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Remove handwriting")
+                        }
+                    }
                 } else if (e.type == "IMAGE") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ImageThumb(e.data, Modifier.weight(1f).heightIn(max = 160.dp).padding(vertical = 4.dp), onClick = { zoom = e.data })
@@ -340,6 +352,11 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
                     if (u == null) toast(ctx, "No image on the clipboard. Copy a screenshot first, or use + Image.") else addImage(u)
                 }) { Text("Paste image") }
                 OutlinedButton(onClick = { setFace(faces[curIdx()] + EItem("AUDIO", "")) }) { Text("+ Audio") }
+                OutlinedButton(onClick = {
+                    val l = faces[curIdx()]
+                    setFace(l + EItem("INK", ""))
+                    inkEdit = l.size
+                }) { Text("✍ Handwriting") }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 formulaButtons.forEach { (label, tpl) -> FilledTonalButton(onClick = { insertFormula(tpl) }, contentPadding = PaddingValues(horizontal = 12.dp)) { Text(label) } }
@@ -355,6 +372,19 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
         }
     }
     zoom?.let { ZoomDialog(it) { zoom = null } }
+    inkEdit?.let { idx ->
+        val items = faces[curIdx()]
+        if (idx in items.indices) {
+            InkEditorDialog(
+                initial = items[idx].data,
+                onDone = { nv ->
+                    setFace(faces[curIdx()].toMutableList().also { l -> if (idx in l.indices) l[idx] = EItem("INK", nv) })
+                    inkEdit = null
+                },
+                onCancel = { inkEdit = null }
+            )
+        }
+    }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
         title = { Text("Delete this card?") },
@@ -441,6 +471,7 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                     val faceItems = faceList[fi]
                     val textItems = faceItems.filter { it.type == "TEXT" || it.type == "LATEX" }
                     val imgs = faceItems.filter { it.type == "IMAGE" }
+                    val inks = faceItems.filter { it.type == "INK" }
                     val auds = faceItems.filter { it.type == "AUDIO" }
                     Text("FACE ${fi + 1} / ${faceList.size}", style = MaterialTheme.typography.labelLarge)
                     Box(
@@ -450,7 +481,7 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                         }
                     ) {
                         Column(Modifier.fillMaxSize()) {
-                            if (textItems.isNotEmpty() || imgs.isEmpty()) {
+                            if (textItems.isNotEmpty() || (imgs.isEmpty() && inks.isEmpty())) {
                                 Box(Modifier.weight(1f).fillMaxWidth()) {
                                     FaceView(textItems.map { it.type to it.data }, dark, Modifier.fillMaxSize())
                                     Box(Modifier.matchParentSize().pointerInput(fi, faceList.size) {
@@ -458,12 +489,15 @@ fun ReviewScreen(db: Db, deckId: Long, dark: Boolean, back: () -> Unit) {
                                     })
                                 }
                             }
-                            if (imgs.isNotEmpty()) {
+                            if (imgs.isNotEmpty() || inks.isNotEmpty()) {
                                 Column(
                                     Modifier.then(if (textItems.isEmpty()) Modifier.weight(1f) else Modifier.heightIn(max = 220.dp))
                                         .fillMaxWidth().verticalScroll(rememberScrollState())
                                 ) {
                                     imgs.forEach { im -> ImageThumb(im.data, Modifier.fillMaxWidth().padding(4.dp), onClick = { zoom = im.data }) }
+                                    inks.forEach { ik ->
+                                        InkView(ik.data, Modifier.fillMaxWidth().padding(4.dp).pointerInput(fi) { detectTapGestures { advance() } })
+                                    }
                                 }
                             }
                         }

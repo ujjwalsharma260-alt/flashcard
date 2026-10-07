@@ -39,7 +39,7 @@ fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () ->
         )
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text((if (r.fav == 1) "★ " else "") + (r.preview ?: "(image / voice)").take(120), maxLines = 2)
+            Text((if (r.fav == 1) "★ " else "") + (r.preview ?: "(handwriting / image / voice)").take(120), maxLines = 2)
             val extra = listOfNotNull(stateLabel(r.state, r.suspended), if (showDeck) r.deckName else null, r.tags.ifBlank { null })
             Text(extra.joinToString("  ·  "), style = MaterialTheme.typography.labelSmall)
         }
@@ -153,7 +153,7 @@ fun HomeScreen(
 @Composable
 fun DeckScreen(
     db: Db, deckId: Long, initialQuery: String, back: () -> Unit,
-    edit: (Long, Long) -> Unit, study: () -> Unit, importText: (String) -> Unit
+    edit: (Long, Long) -> Unit, newInk: (Long) -> Unit, study: () -> Unit, importText: (String) -> Unit
 ) {
     val dao = db.dao()
     val ctx = LocalContext.current
@@ -282,6 +282,7 @@ fun DeckScreen(
                 Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = study, enabled = (info?.let { it.fresh + it.due } ?: 0) > 0) { Text("Study") }
                     OutlinedButton(onClick = { edit(deckId, 0L) }) { Text("+ Add card") }
+                    OutlinedButton(onClick = { newInk(deckId) }) { Text("✍ Pen card") }
                 }
             }
             OutlinedTextField(q, { q = it }, label = { Text("Search, or use the filters below") }, singleLine = true, modifier = Modifier.fillMaxWidth())

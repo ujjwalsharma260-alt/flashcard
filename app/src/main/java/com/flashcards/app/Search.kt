@@ -84,6 +84,8 @@ object CardSearch {
                 hasType("AUDIO")
             } else if (key == "has" && (vl == "formula" || vl == "latex")) {
                 hasType("LATEX")
+            } else if (key == "has" && (vl == "ink" || vl == "handwriting" || vl == "pen")) {
+                hasType("INK")
             } else if (key == "faces" && v.isNotEmpty()) {
                 val plus = v.endsWith("+")
                 val n = v.trimEnd('+').toIntOrNull()
