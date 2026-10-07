@@ -161,7 +161,6 @@ fun AudioItem(name: String, onChange: (String) -> Unit, onRemove: () -> Unit) {
                     else { playing = true; Player.play(ctx, name) { playing = false } }
                 }) { Text(if (playing) "■ Stop" else "▶ Play") }
                 OutlinedButton(onClick = {
-                    audioFile(ctx, name).delete()
                     onChange("")
                     beginRecord()
                 }) { Text("Re-record") }
@@ -170,7 +169,6 @@ fun AudioItem(name: String, onChange: (String) -> Unit, onRemove: () -> Unit) {
         }
         IconButton(onClick = {
             rec.cancel(); Player.stop(); playing = false
-            if (name.isNotBlank()) audioFile(ctx, name).delete()
             onRemove()
         }) { Icon(Icons.Default.Delete, contentDescription = "Delete recording") }
     }

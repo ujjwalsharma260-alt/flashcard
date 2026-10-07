@@ -106,8 +106,15 @@ object Tsv {
 
     const val TEMPLATE = "Face1\tFace2\tFace3\tFace4\tFace5"
 
-    suspend fun deckTsv(dao: AppDao, deckId: Long): String {
-        val byCard = dao.deckItems(deckId).groupBy { it.cardId }
+    suspend fun deckTsv(dao: AppDao, deckId: Long): String = fromItems(dao.deckItems(deckId))
+
+    suspend fun idsTsv(dao: AppDao, ids: List<Long>): String {
+        val items = ids.sorted().chunked(500).flatMap { dao.itemsOf(it) }
+        return fromItems(items)
+    }
+
+    fun fromItems(items: List<Item>): String {
+        val byCard = items.groupBy { it.cardId }
         val cards = byCard.values.map { list ->
             list.groupBy { it.face }.toSortedMap().values.take(5).map { faceItems ->
                 faceItems.mapNotNull { x ->

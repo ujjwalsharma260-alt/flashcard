@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Entity data class Deck(@PrimaryKey(autoGenerate = true) val id: Long = 0, val name: String)
@@ -21,7 +22,10 @@ data class Flashcard(
     val lapses: Int = 0,
     val lastReview: Long = 0,
     @ColumnInfo(defaultValue = "0") val state: Int = 0,
-    @ColumnInfo(defaultValue = "0") val step: Int = 0
+    @ColumnInfo(defaultValue = "0") val step: Int = 0,
+    @ColumnInfo(defaultValue = "0") val fav: Int = 0,
+    @ColumnInfo(defaultValue = "0") val suspended: Int = 0,
+    @ColumnInfo(defaultValue = "0") val created: Long = System.currentTimeMillis()
 )
 
 /** One piece of content on one face. type: TEXT, LATEX, IMAGE, AUDIO (data = file name for IMAGE/AUDIO). */
@@ -37,8 +41,8 @@ data class Item(
 )
 
 data class DeckInfo(val id: Long, val name: String, val total: Int, val due: Int, val fresh: Int)
-data class CardRow(val id: Long, val tags: String, val preview: String?, val due: Long, val reps: Int)
-data class CardHit(val id: Long, val deckId: Long, val deckName: String, val preview: String?, val tags: String)
+data class CardRow(val id: Long, val deckId: Long, val deckName: String, val preview: String?, val tags: String, val fav: Int, val suspended: Int, val state: Int, val due: Long)
+data class IdTags(val id: Long, val tags: String)
 
 @Dao
 interface AppDao {
@@ -50,8 +54,8 @@ interface AppDao {
 
     @Query("SELECT d.id AS id, d.name AS name, " +
         "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id) AS total, " +
-        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state<>0 AND c.due<=:now) AS due, " +
-        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state=0) AS fresh " +
+        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state<>0 AND c.suspended=0 AND c.due<=:now) AS due, " +
+        "(SELECT COUNT(*) FROM Flashcard c WHERE c.deckId=d.id AND c.state=0 AND c.suspended=0) AS fresh " +
         "FROM Deck d ORDER BY d.name COLLATE NOCASE")
     fun decks(now: Long): Flow<List<DeckInfo>>
 
@@ -66,7 +70,7 @@ interface AppDao {
     @Query("SELECT i.* FROM Item i JOIN Flashcard c ON c.id=i.cardId WHERE c.deckId=:deck ORDER BY i.cardId, i.face, i.pos")
     suspend fun deckItems(deck: Long): List<Item>
 
-    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND (state=0 OR due<=:now) ORDER BY (state=0), due LIMIT 200")
+    @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND (state=0 OR due<=:now) ORDER BY (state=0), due LIMIT 200")
     suspend fun queue(deck: Long, now: Long): List<Long>
 
     @Insert suspend fun log(r: ReviewLog)
@@ -75,22 +79,22 @@ interface AppDao {
     @Query("SELECT * FROM Flashcard") suspend fun allCards(): List<Flashcard>
     @Query("SELECT * FROM Item") suspend fun allItems(): List<Item>
 
-    @Query("SELECT tags FROM Flashcard WHERE deckId=:deck AND tags<>''")
+    @Query("SELECT tags FROM Flashcard WHERE (:deck=0 OR deckId=:deck) AND tags<>''")
     fun tagLists(deck: Long): Flow<List<String>>
 
-    @Query("SELECT c.id AS id, c.tags AS tags, " +
-        "(SELECT data FROM Item WHERE cardId=c.id AND type IN ('TEXT','LATEX') ORDER BY face, pos LIMIT 1) AS preview, " +
-        "c.due AS due, c.reps AS reps FROM Flashcard c WHERE c.deckId=:deck AND (:q='' " +
-        "OR c.tags LIKE '%'||:q||'%' OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type IN ('TEXT','LATEX') AND i.data LIKE '%'||:q||'%')) " +
-        "ORDER BY c.id DESC LIMIT 1000")
-    fun cards(deck: Long, q: String): Flow<List<CardRow>>
+    @RawQuery(observedEntities = [Flashcard::class, Item::class, Deck::class])
+    fun browse(query: SupportSQLiteQuery): Flow<List<CardRow>>
 
-    @Query("SELECT c.id AS id, c.deckId AS deckId, d.name AS deckName, " +
-        "(SELECT data FROM Item WHERE cardId=c.id AND type IN ('TEXT','LATEX') ORDER BY face, pos LIMIT 1) AS preview, " +
-        "c.tags AS tags FROM Flashcard c JOIN Deck d ON d.id=c.deckId WHERE :q<>'' AND (c.tags LIKE '%'||:q||'%' " +
-        "OR EXISTS(SELECT 1 FROM Item i WHERE i.cardId=c.id AND i.type IN ('TEXT','LATEX') AND i.data LIKE '%'||:q||'%')) " +
-        "ORDER BY c.id DESC LIMIT 200")
-    fun searchAll(q: String): Flow<List<CardHit>>
+    @Query("UPDATE Flashcard SET fav=:v WHERE id IN (:ids)") suspend fun setFav(ids: List<Long>, v: Int)
+    @Query("UPDATE Flashcard SET suspended=:v WHERE id IN (:ids)") suspend fun setSusp(ids: List<Long>, v: Int)
+    @Query("UPDATE Flashcard SET deckId=:deck WHERE id IN (:ids)") suspend fun setDeck(ids: List<Long>, deck: Long)
+    @Query("SELECT id, tags FROM Flashcard WHERE id IN (:ids)") suspend fun tagsOf(ids: List<Long>): List<IdTags>
+    @Query("UPDATE Flashcard SET tags=:tags WHERE id=:id") suspend fun setTags(id: Long, tags: String)
+    @Query("DELETE FROM Item WHERE cardId IN (:ids)") suspend fun deleteItemsOf(ids: List<Long>)
+    @Query("DELETE FROM Flashcard WHERE id IN (:ids)") suspend fun deleteCards(ids: List<Long>)
+    @Query("UPDATE Flashcard SET deckId=:dst WHERE deckId=:src") suspend fun moveAll(src: Long, dst: Long)
+    @Query("SELECT * FROM Flashcard WHERE deckId=:deck") suspend fun cardsOfDeck(deck: Long): List<Flashcard>
+    @Query("SELECT * FROM Item WHERE cardId IN (:ids) ORDER BY cardId, face, pos") suspend fun itemsOf(ids: List<Long>): List<Item>
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -101,14 +105,23 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 2, exportSchema = false)
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN fav INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE Flashcard ADD COLUMN created INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE Flashcard SET created=" + System.currentTimeMillis())
+    }
+}
+
+@Database(entities = [Deck::class, Flashcard::class, Item::class, ReviewLog::class], version = 3, exportSchema = false)
 abstract class Db : RoomDatabase() {
     abstract fun dao(): AppDao
     companion object {
         @Volatile private var inst: Db? = null
         fun get(ctx: Context): Db = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, Db::class.java, "flashcards.db")
-                .addMigrations(MIGRATION_1_2).build().also { inst = it }
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { inst = it }
         }
     }
 }

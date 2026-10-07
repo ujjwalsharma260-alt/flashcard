@@ -31,7 +31,8 @@ object Backup {
             ca.put(JSONObject().put("id", c.id).put("deckId", c.deckId).put("tags", c.tags)
                 .put("due", c.due).put("interval", c.interval).put("ease", c.ease)
                 .put("reps", c.reps).put("lapses", c.lapses).put("lastReview", c.lastReview)
-                .put("state", c.state).put("step", c.step))
+                .put("state", c.state).put("step", c.step)
+                .put("fav", c.fav).put("suspended", c.suspended).put("created", c.created))
         }
         root.put("cards", ca)
         val ia = JSONArray()
@@ -104,7 +105,8 @@ object Backup {
                         deckId = deck, tags = o.optString("tags", ""), due = o.optLong("due", 0),
                         interval = o.optDouble("interval", 0.0), ease = o.optDouble("ease", 2.5),
                         reps = reps, lapses = o.optInt("lapses", 0), lastReview = o.optLong("lastReview", 0),
-                        state = o.optInt("state", if (reps > 0) 2 else 0), step = o.optInt("step", 0)
+                        state = o.optInt("state", if (reps > 0) 2 else 0), step = o.optInt("step", 0),
+                        fav = o.optInt("fav", 0), suspended = o.optInt("suspended", 0), created = o.optLong("created", System.currentTimeMillis())
                     )
                 )
                 nCards++

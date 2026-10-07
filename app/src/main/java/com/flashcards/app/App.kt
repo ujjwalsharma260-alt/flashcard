@@ -25,11 +25,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -43,7 +45,7 @@ import kotlinx.coroutines.withContext
 
 sealed class Screen {
     object Home : Screen()
-    data class DeckS(val id: Long) : Screen()
+    data class DeckS(val id: Long, val q: String = "") : Screen()
     data class Edit(val deckId: Long, val cardId: Long) : Screen()
     data class Review(val deckId: Long) : Screen()
     data class Import(val deckId: Long, val text: String) : Screen()
@@ -110,12 +112,13 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
         is Screen.Home -> HomeScreen(
             db, theme, onTheme,
             { stack.add(Screen.DeckS(it)) },
+            { q -> stack.add(Screen.DeckS(0L, q)) },
             { d, c -> stack.add(Screen.Edit(d, c)) },
             { d, t -> stack.add(Screen.Import(d, t)) }
         )
         is Screen.DeckS -> DeckScreen(
-            db, cur.id, { pop() },
-            { stack.add(Screen.Edit(cur.id, it)) },
+            db, cur.id, cur.q, { pop() },
+            { d, c -> stack.add(Screen.Edit(d, c)) },
             { stack.add(Screen.Review(cur.id)) },
             { t -> stack.add(Screen.Import(cur.id, t)) }
         )
@@ -123,226 +126,6 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
         is Screen.Review -> ReviewScreen(db, cur.deckId, dark) { pop() }
         is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
     }
-}
-
-// ---------- home ----------
-
-@Composable
-fun HomeScreen(
-    db: Db, theme: Int, onTheme: (Int) -> Unit,
-    open: (Long) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit
-) {
-    val dao = db.dao()
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val flow = remember { dao.decks(System.currentTimeMillis()) }
-    val decks by flow.collectAsState(emptyList())
-    var q by remember { mutableStateOf("") }
-    val hitFlow = remember(q) { dao.searchAll(q.trim()) }
-    val hits by hitFlow.collectAsState(emptyList())
-    var dialog by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
-    val shown = decks.filter { it.name.contains(q.trim(), ignoreCase = true) }
-
-    val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) scope.launch {
-            val msg = try { Backup.export(ctx, db, uri) } catch (e: Exception) { "Export failed: ${e.message}" }
-            toast(ctx, msg)
-        }
-    }
-    val importL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            val msg = try { Backup.restore(ctx, db, uri) } catch (e: Exception) { "Import failed: this is not a valid backup file" }
-            toast(ctx, msg)
-        }
-    }
-    val tsvFileL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            val t = readUriText(ctx, uri)
-            if (t.isNullOrBlank()) toast(ctx, "Could not read that file") else importText(0L, t)
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("My Decks") }, actions = {
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
-                        DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
-                        DropdownMenuItem(text = { Text("Export backup (Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
-                        DropdownMenuItem(text = { Text("Import backup") }, onClick = { menu = false; importL.launch(arrayOf("*/*")) })
-                        DropdownMenuItem(text = { Text(listOf("Theme: System", "Theme: Light", "Theme: Dark")[theme]) }, onClick = { onTheme((theme + 1) % 3) })
-                    }
-                }
-            })
-        },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { name = ""; dialog = true }) { Text("+ Create Deck") } }
-    ) { pad ->
-        Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
-            OutlinedTextField(q, { q = it }, label = { Text("Search decks and cards") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    val t = clipboardText(ctx)
-                    if (t.isNullOrBlank()) toast(ctx, "Clipboard is empty. Copy the TSV from your AI first.") else importText(0L, t)
-                }) { Text("Import from Clipboard") }
-            }
-            if (shown.isEmpty() && hits.isEmpty()) Text("No decks yet. Tap + Create Deck.", Modifier.padding(24.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
-                items(shown, key = { "d${it.id}" }) { d ->
-                    Card(onClick = { open(d.id) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(d.name, style = MaterialTheme.typography.titleLarge)
-                            Text("${d.total} cards     ${d.due + d.fresh} to study  (${d.fresh} new, ${d.due} due)")
-                        }
-                    }
-                }
-                if (hits.isNotEmpty()) {
-                    item { Text("Matching cards", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-                    items(hits, key = { "c${it.id}" }) { h ->
-                        Card(onClick = { editCard(h.deckId, h.id) }, modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text((h.preview ?: "(image / voice)").take(120), maxLines = 2)
-                                Text(h.deckName + (if (h.tags.isNotBlank()) "   " + h.tags else ""), style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (dialog) AlertDialog(
-        onDismissRequest = { dialog = false },
-        title = { Text("New deck") },
-        text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
-        confirmButton = {
-            TextButton(onClick = {
-                if (name.isNotBlank()) scope.launch { dao.insertDeck(Deck(name = name.trim())) }
-                dialog = false
-            }) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = { dialog = false }) { Text("Cancel") } }
-    )
-}
-
-// ---------- deck ----------
-
-@Composable
-fun DeckScreen(
-    db: Db, deckId: Long, back: () -> Unit, edit: (Long) -> Unit, study: () -> Unit, importText: (String) -> Unit
-) {
-    val dao = db.dao()
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val infoFlow = remember { dao.decks(System.currentTimeMillis()) }
-    val infos by infoFlow.collectAsState(emptyList())
-    val info = infos.firstOrNull { it.id == deckId }
-    var q by remember { mutableStateOf("") }
-    val cardFlow = remember(q) { dao.cards(deckId, q.trim()) }
-    val cards by cardFlow.collectAsState(emptyList())
-    val tagFlow = remember { dao.tagLists(deckId) }
-    val tagLists by tagFlow.collectAsState(emptyList())
-    val allTags = remember(tagLists) {
-        tagLists.flatMap { it.split(Regex("\\s+")) }.filter { it.isNotBlank() }.distinct().sorted()
-    }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf(false) }
-    var renameText by remember { mutableStateOf("") }
-
-    val tsvFileL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            val t = readUriText(ctx, uri)
-            if (t.isNullOrBlank()) toast(ctx, "Could not read that file") else importText(t)
-        }
-    }
-    val exportTsvL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/tab-separated-values")) { uri ->
-        if (uri != null) scope.launch {
-            val ok = try { writeUriText(ctx, uri, Tsv.deckTsv(dao, deckId)) } catch (e: Exception) { false }
-            toast(ctx, if (ok) "TSV exported (text and formulas only; use backup for images and audio)" else "Export failed")
-        }
-    }
-
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { },
-            navigationIcon = { BackIcon(back) },
-            actions = {
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Rename deck") }, onClick = { menu = false; renameText = info?.name ?: ""; renaming = true })
-                        DropdownMenuItem(text = { Text("Import TSV from clipboard") }, onClick = {
-                            menu = false
-                            val t = clipboardText(ctx)
-                            if (t.isNullOrBlank()) toast(ctx, "Clipboard is empty") else importText(t)
-                        })
-                        DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
-                        DropdownMenuItem(text = { Text("Export TSV file") }, onClick = { menu = false; exportTsvL.launch("deck.tsv") })
-                        DropdownMenuItem(text = { Text("Copy TSV to clipboard") }, onClick = {
-                            menu = false
-                            scope.launch { copyToClipboard(ctx, Tsv.deckTsv(dao, deckId)); toast(ctx, "Copied") }
-                        })
-                        DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
-                    }
-                }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete deck") }
-            }
-        )
-    }) { pad ->
-        Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
-            Text("${info?.total ?: 0} cards  |  ${info?.fresh ?: 0} new  |  ${info?.due ?: 0} due")
-            Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = study, enabled = (info?.let { it.fresh + it.due } ?: 0) > 0) { Text("Study") }
-                OutlinedButton(onClick = { edit(0L) }) { Text("+ Add card") }
-            }
-            OutlinedTextField(q, { q = it }, label = { Text("Search cards or tags") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            if (allTags.isNotEmpty()) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    allTags.forEach { t ->
-                        FilterChip(selected = q.trim() == t, onClick = { q = if (q.trim() == t) "" else t }, label = { Text(t) })
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            if (cards.isEmpty()) Text("No cards.", Modifier.padding(16.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(cards, key = { it.id }) { c ->
-                    Card(onClick = { edit(c.id) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text((c.preview ?: "(image / voice)").take(120), maxLines = 2)
-                            if (c.tags.isNotBlank()) Text(c.tags, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (renaming) AlertDialog(
-        onDismissRequest = { renaming = false },
-        title = { Text("Rename deck") },
-        text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true) },
-        confirmButton = {
-            TextButton(onClick = {
-                if (renameText.isNotBlank()) scope.launch { dao.renameDeck(deckId, renameText.trim()) }
-                renaming = false
-            }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } }
-    )
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false },
-        title = { Text("Delete this deck and all its cards?") },
-        confirmButton = {
-            TextButton(onClick = {
-                confirmDelete = false
-                scope.launch { dao.deleteDeckItems(deckId); dao.deleteDeckCards(deckId); dao.deleteDeck(deckId); back() }
-            }) { Text("Delete") }
-        },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
-    )
 }
 
 // ---------- editor ----------
@@ -370,6 +153,9 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
     var restored by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var zoom by remember { mutableStateOf<String?>(null) }
+    var fav by remember { mutableStateOf(false) }
+    var susp by remember { mutableStateOf(false) }
+    var editMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(cardId, reload) {
         var newFaces: List<List<EItem>> = emptyList()
@@ -378,6 +164,8 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
             val c = dao.card(cardId)
             val its = dao.items(cardId)
             newTags = c?.tags ?: ""
+            fav = (c?.fav ?: 0) == 1
+            susp = (c?.suspended ?: 0) == 1
             newFaces = its.groupBy { it.face }.toSortedMap().values.map { l -> l.map { EItem(it.type, it.data) } }
         }
         if (reload == 0) {
@@ -417,9 +205,9 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
         scope.launch {
             val cid: Long
             if (cardId == 0L) {
-                cid = dao.insertCard(Flashcard(deckId = deckId, tags = tg))
+                cid = dao.insertCard(Flashcard(deckId = deckId, tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0))
             } else {
-                dao.card(cardId)?.let { dao.updateCard(it.copy(tags = tg)) }
+                dao.card(cardId)?.let { dao.updateCard(it.copy(tags = tg, fav = if (fav) 1 else 0, suspended = if (susp) 1 else 0)) }
                 dao.deleteItems(cardId)
                 cid = cardId
             }
@@ -453,7 +241,34 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, dark: Boolean, back: () -> 
             title = { Text(if (cardId == 0L) "New card" else "Edit card") },
             navigationIcon = { BackIcon(back) },
             actions = {
-                if (cardId != 0L) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete card") }
+                IconButton(onClick = {
+                    val nv = !fav
+                    fav = nv
+                    if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(fav = if (nv) 1 else 0)) } }
+                }) {
+                    Icon(Icons.Default.Star, contentDescription = "Favorite", tint = if (fav) Color(0xFFFFB300) else LocalContentColor.current)
+                }
+                Box {
+                    IconButton(onClick = { editMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                    DropdownMenu(expanded = editMenu, onDismissRequest = { editMenu = false }) {
+                        DropdownMenuItem(text = { Text(if (susp) "Unsuspend card" else "Suspend card") }, onClick = {
+                            editMenu = false
+                            val nv = !susp
+                            susp = nv
+                            if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(suspended = if (nv) 1 else 0)) } }
+                        })
+                        if (cardId != 0L) {
+                            DropdownMenuItem(text = { Text("Duplicate card") }, onClick = {
+                                editMenu = false
+                                scope.launch {
+                                    val n = try { Bulk.duplicateCards(ctx, db, listOf(cardId)) } catch (e: Exception) { 0 }
+                                    toast(ctx, if (n > 0) "Card duplicated (saved version)" else "Duplicate failed")
+                                }
+                            })
+                            DropdownMenuItem(text = { Text("Delete card") }, onClick = { editMenu = false; confirmDelete = true })
+                        }
+                    }
+                }
                 IconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "Save") }
             }
         )
