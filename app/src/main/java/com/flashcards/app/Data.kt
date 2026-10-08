@@ -77,7 +77,8 @@ interface AppDao {
     @Query("SELECT id FROM Flashcard WHERE deckId=:deck AND suspended=0 AND (state=0 OR due<=:now) ORDER BY (state=0), due LIMIT 200")
     suspend fun queue(deck: Long, now: Long): List<Long>
 
-    @Insert suspend fun log(r: ReviewLog)
+    @Insert suspend fun log(r: ReviewLog): Long
+    @Query("DELETE FROM ReviewLog WHERE id=:id") suspend fun deleteLog(id: Long)
 
     @Query("SELECT * FROM Deck") suspend fun allDecks(): List<Deck>
     @Query("SELECT * FROM Flashcard") suspend fun allCards(): List<Flashcard>

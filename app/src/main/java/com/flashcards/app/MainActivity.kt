@@ -6,7 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 
 class MainActivity : ComponentActivity() {
@@ -32,13 +31,14 @@ class MainActivity : ComponentActivity() {
         AppSettings.init(this)
         requestHighRefreshRate()
         val db = Db.get(this)
-        val prefs = getSharedPreferences("p", 0)
         setContent {
-            var theme by remember { mutableStateOf(prefs.getInt("theme", 0)) }
-            val dark = when (theme) { 1 -> false; 2 -> true; else -> isSystemInDarkTheme() }
-            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+            val theme = AppSettings.theme      // 0 System, 1 Light, 2..6 = Charcoal, Slate, Sand, Forest, Plum
+            val sysDark = isSystemInDarkTheme()
+            val dark = theme >= 2 || (theme == 0 && sysDark)
+            val scheme = if (!dark) lightColorScheme() else darkPalette(if (theme >= 2) theme - 2 else 0)
+            MaterialTheme(colorScheme = scheme) {
                 Surface(Modifier.fillMaxSize()) {
-                    AppRoot(db, dark, theme) { theme = it; prefs.edit().putInt("theme", it).apply() }
+                    AppRoot(db, dark, theme) { AppSettings.theme = it; AppSettings.save(this@MainActivity) }
                 }
             }
         }

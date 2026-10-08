@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -220,7 +221,7 @@ private fun eraseAt(strokes: List<InkStroke>, cx: Float, cy: Float, r: Float): L
 
 // ---------- display ----------
 
-/** Read-only handwriting. fit = true scales it to fill the given box (centred); otherwise it fills the width. */
+/** Read-only handwriting. Always scaled to fit inside its box (never drawn outside it) and centred. */
 @Composable
 fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = false, fit: Boolean = false, color: Color? = null) {
     val doc = remember(data) { Ink.parse(data) }
@@ -232,17 +233,13 @@ fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = 
                 contentAlignment = Alignment.Center
             ) { Text("✍ Tap to write") }
         }
-    } else if (fit) {
-        Canvas(modifier) {
+    } else {
+        val m = if (fit) modifier else modifier.aspectRatio(doc.w / doc.h)
+        Canvas(m.clipToBounds()) {
             val sc = min(size.width / doc.w, size.height / doc.h)
             val ox = (size.width - doc.w * sc) / 2f
             val oy = (size.height - doc.h * sc) / 2f
             drawInk(doc.strokes, sc, ox, oy, fg)
-        }
-    } else {
-        Canvas(modifier.aspectRatio(doc.w / doc.h)) {
-            val sc = size.width / doc.w
-            drawInk(doc.strokes, sc, 0f, 0f, fg)
         }
     }
 }

@@ -10,6 +10,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 
 private val helpSections: List<Pair<String, String>> = listOf(
@@ -22,7 +27,7 @@ private val helpSections: List<Pair<String, String>> = listOf(
     "2. Decks and cards" to
         "A DECK is a box of cards about one subject. Example: a deck called \"Physics Chapter 3\".\n\n" +
         "To make a deck: on the first screen tap + Create Deck, type a name, tap Create.\n" +
-        "To open a deck: tap its name.\n" +
+        "To study a deck: just tap it. To see its cards, long-press the deck (or tap the three dots on it) and choose Browse / edit cards. The same menu has Rename and Delete.\n" +
         "To add a card: open the deck and tap + Add card.\n" +
         "To change a card: tap it in the list. To delete a card: open it, tap the three dots, tap Delete card.\n" +
         "To rename or delete a whole deck: open the deck and use the three dots or the bin icon at the top.",
@@ -72,22 +77,29 @@ private val helpSections: List<Pair<String, String>> = listOf(
         "Pen only: turn it on so your hand resting on the screen does not draw.\n\n" +
         "You can also add handwriting to any normal card with the Handwriting button.",
 
-    "8. Studying: the four buttons" to
-        "Open a deck and tap Study. You see the question face. Tap the card to turn it. On the last face you press one of four buttons:\n\n" +
-        "AGAIN: I did not know it. The card comes back very soon.\n" +
-        "HARD: I knew it, but it was difficult. It comes back after a short time.\n" +
-        "GOOD: I knew it. It comes back after a normal time.\n" +
-        "EASY: Too easy! It comes back after a long time.\n\n" +
-        "Be honest. The app is only as clever as your answers.\n" +
-        "Is the app adaptive? Yes. Every card has its own difficulty score. When you press Again or Hard the score goes down and the card comes back sooner. " +
-        "When you press Easy it goes up and the card waits longer.",
+    "8. Studying: swipes" to
+        "Tap a deck on the first screen and you start studying at once. You see the question on a black card.\n\n" +
+        "TAP the card (or the little card icon at the bottom) to turn it and see the next face.\n" +
+        "On the LAST face, swipe:\n" +
+        "UP = I knew it (correct). The card comes back later, after a longer time.\n" +
+        "DOWN = I missed it (incorrect). The card comes back soon, and again in this set until you get it right.\n" +
+        "RIGHT = go to the next card without answering.\n" +
+        "LEFT = go back one step. If you just answered a card by mistake, this undoes that answer.\n\n" +
+        "If a card still has faces you have not seen, swiping up or down just turns the card first.\n" +
+        "At the bottom you see how far you are (3 of 112), your accuracy (Correct: 100%) and your streak. " +
+        "The bookmark and star icons mark the card you are looking at.\n\n" +
+        "Do you prefer four buttons? Tap the gear and choose How you answer: Buttons. Then Again, Hard, Good and Easy appear: " +
+        "AGAIN = missed it, HARD = difficult, GOOD = normal, EASY = too easy.\n\n" +
+        "Is the app adaptive? Yes. Every card has its own difficulty score. Missing a card lowers it, so the card comes back sooner. " +
+        "Doing well keeps raising the waiting time.",
 
     "9. Study sets (for example 20 cards at a time)" to
         "A deck can have 100 cards. Studying all of them at once is tiring. So you choose Cards per study set on the deck page: 10, 20, 30, 50 or All.\n\n" +
         "Example: you pick 20. You study 20 cards. Say you press Again on 5 of them.\n" +
         "Those 5 come back at the end of the set, again and again, until you get each one right. " +
         "Only then does the set finish. (You can switch this off in Settings: Repeat missed cards in the same set.)\n" +
-        "Then tap Next set to get the next 20.",
+        "Then tap Next set to get the next 20.\n\n" +
+        "If you leave in the middle, the app remembers. Next time it asks: Continue where you left off, or Start over. You can tick Remember my choice for this deck.",
 
     "10. Missed cards that keep coming back" to
         "In Settings you can turn on: Bring missed cards back in later sets.\n\n" +
@@ -147,14 +159,17 @@ private val helpSections: List<Pair<String, String>> = listOf(
         "A backup holds your cards, pictures, recordings, handwriting and progress.",
 
     "17. Settings" to
-        "Open the three dots on the first screen, then Settings. Everything can be switched on or off:\n\n" +
+        "Open the three dots on the first screen, then Settings (or tap the gear while studying). Everything can be switched on or off:\n\n" +
         "Cards per study set - 10, 20, 30, 50 or All.\n" +
         "Repeat missed cards in the same set - missed cards come back until you get them right.\n" +
         "Bring missed cards back in later sets - older missed cards mix into new sets (10%, 25% or 40%).\n" +
         "Reward correct streaks - right several times in a row means longer waiting.\n" +
         "Card turn animation - smooth fade, 3D flip, or none.\n" +
         "Reset all settings - puts everything back as it was.\n" +
-        "The theme (light, dark or follow phone) is in the same three-dots menu.",
+        "How you answer - swipe or buttons.\n" +
+        "Theme - System, Light, or five calm dark themes: Charcoal, Slate, Sand, Forest, Plum.\n" +
+        "Card border - a thin rounded line around the study card.\n" +
+        "While studying, tap the gear in the top corner to change these without leaving.",
 
     "18. If something looks wrong" to
         "A formula shows as plain text: put it between the signs, for example \\(x^2\\), or use the + Formula box.\n" +
@@ -164,22 +179,48 @@ private val helpSections: List<Pair<String, String>> = listOf(
         "Before big changes, always do Export backup first."
 )
 
+private fun highlight(text: String, q: String): AnnotatedString {
+    if (q.isEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        var i = 0
+        while (i < text.length) {
+            val j = text.indexOf(q, i, ignoreCase = true)
+            if (j < 0) { append(text.substring(i)); break }
+            append(text.substring(i, j))
+            withStyle(SpanStyle(background = Color(0xFFFFD54F), color = Color.Black)) { append(text.substring(j, j + q.length)) }
+            i = j + q.length
+        }
+    }
+}
+
 @Composable
 fun HelpScreen(back: () -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
     var openIdx by rememberSaveable { mutableStateOf(0) }
+    val q = query.trim()
+    val shown = helpSections.withIndex().filter { q.isEmpty() || it.value.first.contains(q, true) || it.value.second.contains(q, true) }
     Scaffold(topBar = { TopAppBar(title = { Text("Help") }, navigationIcon = { BackIcon(back) }) }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 14.dp).verticalScroll(rememberScrollState())) {
-            Text(
-                "Welcome! Tap a title to open it. Tap it again to close it. Read them in order if you are new.",
-                modifier = Modifier.padding(vertical = 8.dp)
+            OutlinedTextField(
+                query, { query = it }, singleLine = true, label = { Text("Search the help (for example: swipe, formula, backup)") },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             )
-            helpSections.forEachIndexed { i, (title, body) ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { openIdx = if (openIdx == i) -1 else i }) {
+            if (q.isEmpty()) {
+                Text("Tap a title to open it. Tap it again to close it. New here? Read them in order.", modifier = Modifier.padding(vertical = 8.dp))
+            } else if (shown.isEmpty()) {
+                Text("Nothing found for \"$q\". Try another word.", modifier = Modifier.padding(vertical = 12.dp))
+            }
+            shown.forEach { iv ->
+                val i = iv.index
+                val title = iv.value.first
+                val body = iv.value.second
+                val open = q.isNotEmpty() || openIdx == i
+                Card(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { openIdx = if (openIdx == i) -1 else i }, colors = cardC()) {
                     Column(Modifier.padding(14.dp)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium)
-                        if (openIdx == i) {
+                        Text(highlight(title, q), style = MaterialTheme.typography.titleMedium)
+                        if (open) {
                             Spacer(Modifier.height(8.dp))
-                            Text(body, style = MaterialTheme.typography.bodyLarge)
+                            Text(highlight(body, q), style = MaterialTheme.typography.bodyLarge)
                         }
                     }
                 }

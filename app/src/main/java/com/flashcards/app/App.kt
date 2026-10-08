@@ -129,6 +129,7 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
             is Screen.Home -> HomeScreen(
                 db, theme, onTheme,
                 { stack.add(Screen.DeckS(it)) },
+                { stack.add(Screen.Review(it, 0)) },
                 { q -> stack.add(Screen.DeckS(0L, q)) },
                 { d, c -> stack.add(Screen.Edit(d, c)) },
                 { d, t -> stack.add(Screen.Import(d, t)) },
@@ -143,7 +144,7 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
                 { t -> stack.add(Screen.Import(cur.id, t)) }
             )
             is Screen.Edit -> EditorScreen(db, cur.deckId, cur.cardId, cur.ink, dark) { pop() }
-            is Screen.Review -> ReviewScreen(db, cur.deckId, cur.mode) { pop() }
+            is Screen.Review -> ReviewScreen(db, cur.deckId, cur.mode, { pop(); stack.add(Screen.DeckS(cur.deckId)) }) { pop() }
             is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
             is Screen.Settings -> SettingsScreen { pop() }
             is Screen.Help -> HelpScreen { pop() }
@@ -332,7 +333,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                 } else if (e.type == "INK") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f).padding(vertical = 4.dp).clickable { inkEdit = i }) {
-                            InkView(e.data, Modifier.fillMaxWidth().heightIn(max = 400.dp), placeholder = true)
+                            InkView(e.data, Modifier.fillMaxWidth().height(260.dp), placeholder = true, fit = true)
                         }
                         IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove handwriting")
@@ -414,186 +415,3 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
     )
 }
 
-// ---------- review ----------
-
-@Composable
-fun ReviewScreen(db: Db, deckId: Long, mode: Int, back: () -> Unit) {
-    val dao = db.dao()
-    val scope = rememberCoroutineScope()
-    var queue by remember { mutableStateOf<List<Long>?>(null) }
-    var setNo by remember { mutableStateOf(1) }
-    var setTotal by remember { mutableStateOf(0) }
-    var missed by remember { mutableStateOf(setOf<Long>()) }
-    var card by remember { mutableStateOf<Flashcard?>(null) }
-    var faceList by remember { mutableStateOf<List<List<Item>>>(emptyList()) }
-    var face by remember { mutableStateOf(0) }
-    var step by remember { mutableStateOf(0) }
-    var flipping by remember { mutableStateOf(false) }
-    var zoom by remember { mutableStateOf<String?>(null) }
-    val rot = remember { Animatable(0f) }
-    val fade = remember { Animatable(1f) }
-
-    LaunchedEffect(setNo) {
-        queue = null
-        val q0 = Session.build(dao, deckId, mode, System.currentTimeMillis())
-        missed = emptySet()
-        setTotal = q0.size
-        queue = q0
-    }
-    val q = queue
-    val curId = q?.firstOrNull()
-    LaunchedEffect(curId, step) {
-        if (curId != null) {
-            card = dao.card(curId)
-            faceList = dao.items(curId).groupBy { it.face }.toSortedMap().values.toList()
-            face = 0
-        }
-    }
-    fun advance() {
-        if (flipping || face >= faceList.lastIndex) return
-        flipping = true
-        scope.launch {
-            when (AppSettings.flipStyle) {
-                2 -> { face++ }
-                1 -> {
-                    rot.animateTo(90f, tween(150))
-                    face++
-                    rot.snapTo(-90f)
-                    rot.animateTo(0f, tween(150))
-                }
-                else -> {
-                    fade.animateTo(0f, tween(90))
-                    face++
-                    fade.animateTo(1f, tween(130))
-                }
-            }
-            flipping = false
-        }
-    }
-    fun rate(r: Int) {
-        val c = card ?: return
-        if (q == null || c.id != curId) return
-        val now = System.currentTimeMillis()
-        val onSchedule = c.state == 0 || c.due <= now
-        val n = if (onSchedule) {
-            Scheduler.next(c, r, now, if (AppSettings.streakBonus) AppSettings.streakN else 0, AppSettings.streakMult.toDouble())
-        } else {
-            Scheduler.statsOnly(c, r, now)   // studied early (e.g. a Bookmarked session): only count right/wrong
-        }
-        scope.launch {
-            dao.updateCard(n)
-            dao.log(ReviewLog(cardId = c.id, time = now, rating = r, interval = n.interval))
-        }
-        if (r == 0) missed = missed + c.id
-        val again = r == 0 && AppSettings.retryMissed
-        queue = q.drop(1) + (if (again) listOf(c.id) else emptyList())
-        step++
-    }
-
-    val title = if (mode == 0) "Set $setNo" else listOf("", "Bookmarked", "Favorites", "Weak cards", "Missed today")[mode.coerceIn(0, 4)]
-    val cardShape = RoundedCornerShape(28.dp)
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(title) },
-            navigationIcon = { IconButton(onClick = back) { Icon(Icons.Default.Close, contentDescription = "Close") } }
-        )
-    }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().padding(horizontal = 12.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            when {
-                q == null -> Text("Loading...")
-                q.isEmpty() -> {
-                    Spacer(Modifier.height(48.dp))
-                    if (setTotal == 0) {
-                        Text("Nothing to study right now 🎉", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = back) { Text("Back to deck") }
-                    } else {
-                        Text("Set $setNo complete! 🎉", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.height(8.dp))
-                        Text("You studied $setTotal cards. Missed at first: ${missed.size}")
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = { setNo++ }) { Text("Next set") }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = back) { Text("Finish") }
-                    }
-                }
-                card?.id != curId || faceList.isEmpty() -> Text("Loading...")
-                else -> {
-                    val fi = face.coerceIn(0, faceList.lastIndex)
-                    val last = fi >= faceList.lastIndex
-                    val faceItems = faceList[fi]
-                    val textItems = faceItems.filter { it.type == "TEXT" || it.type == "LATEX" }
-                    val imgs = faceItems.filter { it.type == "IMAGE" }
-                    val inks = faceItems.filter { it.type == "INK" }
-                    val auds = faceItems.filter { it.type == "AUDIO" }
-                    val hasText = textItems.isNotEmpty()
-                    val visuals = imgs.isNotEmpty() || inks.isNotEmpty()
-                    val left = q.distinct().size
-                    Text("$left cards left   ·   missed so far: ${missed.size}   ·   face ${fi + 1}/${faceList.size}", style = MaterialTheme.typography.labelMedium)
-                    LinearProgressIndicator(
-                        progress = { (1f - left.toFloat() / max(setTotal, 1)).coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
-                    )
-                    Box(
-                        Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp)
-                            .graphicsLayer {
-                                rotationY = rot.value
-                                alpha = fade.value
-                                cameraDistance = 12f * density
-                                scaleX = 0.96f + 0.04f * fade.value
-                                scaleY = 0.96f + 0.04f * fade.value
-                            }
-                            .clip(cardShape)
-                            .background(Color.Black)
-                            .border(2.dp, Color(0xFF5C5C66), cardShape)
-                    ) {
-                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.then(if (hasText || !visuals) Modifier.weight(1f) else Modifier.height(1.dp)).fillMaxWidth()) {
-                                FaceView(textItems.map { it.type to it.data }, true, Modifier.fillMaxSize())
-                                Box(Modifier.matchParentSize().pointerInput(fi, faceList.size) {
-                                    detectTapGestures { advance() }
-                                })
-                            }
-                            if (visuals) {
-                                if (!hasText && imgs.isEmpty() && inks.size == 1) {
-                                    InkView(
-                                        inks[0].data,
-                                        Modifier.weight(1f).fillMaxWidth().pointerInput(fi) { detectTapGestures { advance() } },
-                                        fit = true, color = Color.White
-                                    )
-                                } else {
-                                    Box(
-                                        Modifier.then(if (hasText) Modifier.heightIn(max = 240.dp) else Modifier.weight(1f)).fillMaxWidth(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(Modifier.verticalScroll(rememberScrollState())) {
-                                            imgs.forEach { im -> ImageThumb(im.data, Modifier.fillMaxWidth().padding(4.dp), onClick = { zoom = im.data }) }
-                                            inks.forEach { ik ->
-                                                InkView(
-                                                    ik.data,
-                                                    Modifier.fillMaxWidth().padding(4.dp).pointerInput(fi) { detectTapGestures { advance() } },
-                                                    color = Color.White
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    auds.forEach { AudioPlayButton(it.data) }
-                    if (!last) {
-                        Button(onClick = { advance() }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Show next face  (or tap the card)") }
-                    } else {
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
-                                Button(onClick = { rate(i) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    zoom?.let { ZoomDialog(it) { zoom = null } }
-}

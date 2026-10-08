@@ -54,7 +54,7 @@ fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () ->
 @Composable
 fun HomeScreen(
     db: Db, theme: Int, onTheme: (Int) -> Unit,
-    open: (Long) -> Unit, browse: (String) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit,
+    open: (Long) -> Unit, study: (Long) -> Unit, browse: (String) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit,
     openSettings: () -> Unit, openHelp: () -> Unit
 ) {
     val dao = db.dao()
@@ -71,6 +71,10 @@ fun HomeScreen(
     var dialog by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
+    var tileMenu by remember { mutableStateOf(0L) }
+    var renameTarget by remember { mutableStateOf<DeckInfo?>(null) }
+    var deleteTarget by remember { mutableStateOf<DeckInfo?>(null) }
+    var renameText by remember { mutableStateOf("") }
     val shown = decks.filter { q.isBlank() || it.name.contains(q.trim(), ignoreCase = true) }
 
     val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -104,7 +108,6 @@ fun HomeScreen(
                         DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
                         DropdownMenuItem(text = { Text("Export backup (Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
                         DropdownMenuItem(text = { Text("Import backup") }, onClick = { menu = false; importL.launch(arrayOf("*/*")) })
-                        DropdownMenuItem(text = { Text(listOf("Theme: System", "Theme: Light", "Theme: Dark")[theme]) }, onClick = { onTheme((theme + 1) % 3) })
                     }
                 }
             })
@@ -125,10 +128,24 @@ fun HomeScreen(
             if (shown.isEmpty() && hits.isEmpty()) Text("No decks yet. Tap + Create Deck.", Modifier.padding(24.dp))
             LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(shown, key = { "d${it.id}" }) { d ->
-                    Card(onClick = { open(d.id) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(d.name, style = MaterialTheme.typography.titleLarge)
-                            Text("${d.total} cards     ${d.due + d.fresh} to study  (${d.fresh} new, ${d.due} due)")
+                    // tap = start studying at once; long-press or the three dots = browse / rename / delete
+                    Card(
+                        colors = cardC(),
+                        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { study(d.id) }, onLongClick = { tileMenu = d.id })
+                    ) {
+                        Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(d.name, style = MaterialTheme.typography.titleLarge)
+                                Text("${d.total} cards  ·  ${d.due + d.fresh} to study  (${d.fresh} new, ${d.due} due)")
+                            }
+                            Box {
+                                IconButton(onClick = { tileMenu = d.id }) { Icon(Icons.Default.MoreVert, contentDescription = "Deck menu") }
+                                DropdownMenu(expanded = tileMenu == d.id, onDismissRequest = { tileMenu = 0L }) {
+                                    DropdownMenuItem(text = { Text("Browse / edit cards") }, onClick = { tileMenu = 0L; open(d.id) })
+                                    DropdownMenuItem(text = { Text("Rename") }, onClick = { tileMenu = 0L; renameText = d.name; renameTarget = d })
+                                    DropdownMenuItem(text = { Text("Delete deck") }, onClick = { tileMenu = 0L; deleteTarget = d })
+                                }
+                            }
                         }
                     }
                 }
@@ -140,6 +157,33 @@ fun HomeScreen(
                 }
             }
         }
+    }
+    renameTarget?.let { t ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename deck") },
+            text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) scope.launch { dao.renameDeck(t.id, renameText.trim()) }
+                    renameTarget = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
+        )
+    }
+    deleteTarget?.let { t ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete \"${t.name}\" and its ${t.total} cards? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    scope.launch { dao.deleteDeckItems(t.id); dao.deleteDeckCards(t.id); dao.deleteDeck(t.id) }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
+        )
     }
     if (dialog) AlertDialog(
         onDismissRequest = { dialog = false },
@@ -296,7 +340,7 @@ fun DeckScreen(
                 val ready = (info?.let { it.fresh + it.due } ?: 0)
                 val setSize = AppSettings.sessionSize
                 Text("${info?.total ?: 0} cards  |  ${info?.fresh ?: 0} new  |  ${info?.due ?: 0} due")
-                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = cardC()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Cards per study set", style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
