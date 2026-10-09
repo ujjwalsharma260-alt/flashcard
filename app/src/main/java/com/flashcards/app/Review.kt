@@ -45,7 +45,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// ---------- saved progress ("continue where you left off") ----------
+// ---------- saved progress ----------
 
 class SavedSession(
     val order: List<Long>, val answered: Set<Int>, val pos: Int, val total: Int,
@@ -87,8 +87,6 @@ object Resume {
     }
 
     fun clear(ctx: Context, deck: Long, mode: Int) { prefs(ctx).edit().remove(key(deck, mode)).apply() }
-
-    /** 0 = ask every time, 1 = always continue, 2 = always start over (remembered per deck). */
     fun choice(ctx: Context, deck: Long): Int = prefs(ctx).getInt("c_$deck", 0)
     fun setChoice(ctx: Context, deck: Long, v: Int) { prefs(ctx).edit().putInt("c_$deck", v).apply() }
     fun forgetChoices(ctx: Context) {
@@ -101,7 +99,7 @@ object Resume {
 // ---------- study screen ----------
 
 private class Undo(
-    val kind: Int,                 // 0 = moved to another card, 1 = answered a card
+    val kind: Int,
     val pos: Int,
     val before: Flashcard?,
     val logId: Deferred<Long>?,
@@ -260,13 +258,13 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     rot.animateTo(90f, tween(220, easing = FastOutSlowInEasing))
                     face += 1
                     rot.snapTo(-90f)
-                    delay(45)
+                    delay(45L)
                     rot.animateTo(0f, tween(280, easing = flipInEase))
                 }
                 else -> {
                     fade.animateTo(0f, tween(110))
                     face += 1
-                    delay(50)
+                    delay(50L)
                     fade.animateTo(1f, tween(150))
                 }
             }
@@ -353,27 +351,27 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         if (!last) { advance(); return }
         busy = true
         scope.launch {
-            val dur = if (anim) 260 else 0
+            val durLong: Long = if (anim) 260L else 0L
             val ty = (if (up) -1f else 1f) * screenH * 1.3f
             thumb = if (up) 1 else -1
             thumbScale.snapTo(0.6f)
             thumbAlpha.snapTo(0f)
+            launch { offY.animateTo(ty, tween(durLong.toInt(), easing = swipeEase)) }
+            launch { fade.animateTo(0f, tween(durLong.toInt())) }
             launch {
-                launch { thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase)) }
-                launch { thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0)) }
-                delay(500)
-                launch { thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0)) }
-                launch { thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0)) }
+                thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
+                thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
+                delay(500L)
+                thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
+                thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
                 thumb = 0
             }
-            launch { offY.animateTo(ty, tween(dur, easing = swipeEase)) }
-            launch { fade.animateTo(0f, tween(dur)) }
-            delay(dur)
+            delay(durLong)
             answer(if (up) 2 else 0)
             offX.snapTo(0f)
             offY.snapTo(0f)
             fade.snapTo(0f)
-            delay(20)
+            delay(20L)
             fade.animateTo(1f, tween(if (anim) 200 else 0))
             busy = false
         }
@@ -386,16 +384,16 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         if ((forward && (np < 0 || np == pos)) || (!forward && history.isEmpty())) { springBack(); return }
         busy = true
         scope.launch {
-            val dur = if (anim) 220 else 0
+            val durLong: Long = if (anim) 220L else 0L
             val tx = (if (forward) 1f else -1f) * screenW * 1.2f
-            launch { offX.animateTo(tx, tween(dur, easing = swipeEase)) }
-            launch { fade.animateTo(0f, tween(dur)) }
-            delay(dur)
+            launch { offX.animateTo(tx, tween(durLong.toInt(), easing = swipeEase)) }
+            launch { fade.animateTo(0f, tween(durLong.toInt())) }
+            delay(durLong)
             if (forward) navNext() else goBack()
             offY.snapTo(0f)
             offX.snapTo(-tx * 0.7f)
             fade.snapTo(0f)
-            delay(20)
+            delay(20L)
             coroutineScope {
                 launch { offX.animateTo(0f, tween(if (anim) 240 else 0, easing = swipeEase)) }
                 launch { fade.animateTo(1f, tween(if (anim) 200 else 0)) }
@@ -576,15 +574,15 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                         thumbScale.snapTo(0.6f)
                                         thumbAlpha.snapTo(0f)
                                         launch {
-                                            launch { thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase)) }
-                                            launch { thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0)) }
-                                            delay(500)
-                                            launch { thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0)) }
-                                            launch { thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0)) }
+                                            thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
+                                            thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
+                                            delay(500L)
+                                            thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
+                                            thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
                                             thumb = 0
                                         }
                                         answer(i)
-                                        delay(300)
+                                        delay(400L)
                                         busy = false
                                     }
                                 }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
