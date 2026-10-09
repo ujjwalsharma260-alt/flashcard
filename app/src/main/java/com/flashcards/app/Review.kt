@@ -158,6 +158,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     var resumeAsk by remember { mutableStateOf<SavedSession?>(null) }
     var rememberChoice by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showCardMenu by remember { mutableStateOf(false) }
     val cache = remember { mutableStateMapOf<Long, Pair<Flashcard, List<List<Item>>>>() }
     val gone = remember { mutableStateListOf<Long>() }
     val rot = remember { Animatable(0f) }
@@ -371,7 +372,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         iconTrigger += 1
         scope.launch {
             val dur = if (anim) 300 else 0
-            val tx = if (dir == 2) screenW else 0f
+            val tx = if (dir == 2) -screenW else 0f
             val ty = when (dir) {
                 0 -> -screenH
                 1 -> screenH
@@ -433,17 +434,29 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             else if (dy < 0) rateAndFly(0, 3, 2) else rateAndFly(1, 0, 3)
         } else if (!vertical && abs(dx) > thr) {
             if (dx > 0) {
+                // swipe RIGHT -> previous card, no rating
+                navAnim(false)
+            } else {
+                // swipe LEFT -> next card with one green tick (Good rating)
                 if (AppSettings.ratingStyle == 0) {
                     if (!isLast) { springBack(); advance() } else rateAndFly(2, 2, 1)
                 } else {
                     navAnim(true)
                 }
-            } else {
-                navAnim(false)
             }
         } else {
             springBack()
         }
+    }
+
+    fun shuffleSet() {
+        val o = order ?: return
+        order = o.shuffled()
+        answered = emptySet()
+        pos = 0
+        face = 0
+        persist()
+        toast(ctx, "Cards shuffled")
     }
 
     fun toggleFlag(bookmark: Boolean) {
@@ -598,7 +611,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                             Text("🔖", fontSize = 22.sp, modifier = Modifier.alpha(if ((cd?.first?.bookmark ?: 0) == 1) 1f else 0.4f))
                             Text("$shown of $setTotal", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
-                        Column(Modifier.clickable { advance() }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.clickable { showCardMenu = true }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(width = 34.dp, height = 24.dp).border(2.dp, grayText, RoundedCornerShape(5.dp)))
                             Spacer(Modifier.height(3.dp))
                             Text("Correct: $pct%", color = Color(0xFFD0D0D6), fontSize = 14.sp)
@@ -638,8 +651,8 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     Text("How to study", color = Color.White, fontSize = 26.sp)
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Tap the card to turn it.\n\n⬆  Swipe UP: Easy  ✓✓\n➡  Swipe RIGHT: Good  ✓\n⬇  Swipe DOWN: Again  ✗\n⬅  Swipe LEFT: go back\n\n" +
-                            "On a card with several faces, swipe up or right only turns it until you reach the last face.",
+                        "Tap the card to turn it.\n\n⬆  Swipe UP: Easy  ✓✓\n⬅  Swipe LEFT: Good  ✓\n⬇  Swipe DOWN: Again  ✗\n➡  Swipe RIGHT: go back\n\n" +
+                            "On a card with several faces, swipe up or left only turns it until you reach the last face.",
                         color = Color(0xFFD8D8DE), fontSize = 17.sp, textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(22.dp))
@@ -650,6 +663,31 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     }
 
     zoom?.let { ZoomDialog(it) { zoom = null } }
+
+    if (showCardMenu) AlertDialog(
+        onDismissRequest = { showCardMenu = false },
+        title = { Text("Card options") },
+        text = {
+            Column {
+                TextButton(onClick = { showCardMenu = false; toast(ctx, "Speed game — coming in the next update") }) {
+                    Text("⏱  Speed game", fontSize = 18.sp)
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = { showCardMenu = false; shuffleSet() }) {
+                    Text("🔀  Shuffle cards", fontSize = 18.sp)
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = { showCardMenu = false; toast(ctx, "Skip to card — coming soon") }) {
+                    Text("↪  Skip to card", fontSize = 18.sp)
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = { showCardMenu = false; toast(ctx, "Browse mode — coming soon") }) {
+                    Text("🎧  Browse mode", fontSize = 18.sp)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showCardMenu = false }) { Text("Cancel") } }
+    )
 
     resumeAsk?.let { sv ->
         AlertDialog(
