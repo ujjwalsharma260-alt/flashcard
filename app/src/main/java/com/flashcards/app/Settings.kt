@@ -17,28 +17,39 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-/** Every option lives here and can be switched on or off in Settings. */
 object AppSettings {
-    var theme by mutableStateOf(0)                // 0 System, 1 Light, 2 Charcoal, 3 Slate, 4 Sand, 5 Forest, 6 Plum
-    var sessionSize by mutableStateOf(20)         // cards per study set, 0 = all
-    var retryMissed by mutableStateOf(true)       // repeat missed cards inside the same set
-    var carryOver by mutableStateOf(true)         // bring missed cards back in later sets
+    // legacy fields kept for compatibility with older code paths
+    var theme by mutableStateOf(0)
+
+    // new appearance system
+    var base by mutableStateOf(0)        // 0 Dark, 1 Light
+    var style by mutableStateOf(0)       // 0 Plain, 1 Colorful, 2 Liquid
+    var intensity by mutableStateOf(70)  // 0..100
+    var accent by mutableStateOf(0L)     // 0L = auto; else ARGB
+
+    var sessionSize by mutableStateOf(20)
+    var retryMissed by mutableStateOf(true)
+    var carryOver by mutableStateOf(true)
     var carryPercent by mutableStateOf(25)
-    var streakBonus by mutableStateOf(true)       // right N times in a row -> card appears less often
+    var streakBonus by mutableStateOf(true)
     var streakN by mutableStateOf(3)
     var streakMult by mutableStateOf(1.5f)
-    var flipStyle by mutableStateOf(1)            // 0 smooth fade, 1 3D flip, 2 none
-    var ratingStyle by mutableStateOf(0)          // 0 swipe up/down, 1 four buttons
-    var showBorder by mutableStateOf(true)        // thin rounded border around the study card
-    var cardTheme by mutableStateOf(0)            // 0 Black, 1 Green board, 2 Whiteboard, 3 Paper, 4 Lined
+    var flipStyle by mutableStateOf(1)
+    var ratingStyle by mutableStateOf(0)
+    var showBorder by mutableStateOf(true)
+    var cardTheme by mutableStateOf(0)
     var hintSeen by mutableStateOf(false)
     private var loaded = false
 
     fun init(ctx: Context) {
         if (loaded) return
         loaded = true
-        theme = ctx.getSharedPreferences("p", 0).getInt("theme", 0)
         val p = ctx.getSharedPreferences("settings", 0)
+        theme = ctx.getSharedPreferences("p", 0).getInt("theme", 0)
+        base = p.getInt("base", 0)
+        style = p.getInt("style", 0)
+        intensity = p.getInt("intensity", 70)
+        accent = p.getLong("accent", 0L)
         sessionSize = p.getInt("sessionSize", 20)
         retryMissed = p.getBoolean("retryMissed", true)
         carryOver = p.getBoolean("carryOver", true)
@@ -54,8 +65,9 @@ object AppSettings {
     }
 
     fun save(ctx: Context) {
-        ctx.getSharedPreferences("p", 0).edit().putInt("theme", theme).apply()
         ctx.getSharedPreferences("settings", 0).edit()
+            .putInt("base", base).putInt("style", style)
+            .putInt("intensity", intensity).putLong("accent", accent)
             .putInt("sessionSize", sessionSize).putBoolean("retryMissed", retryMissed)
             .putBoolean("carryOver", carryOver).putInt("carryPercent", carryPercent)
             .putBoolean("streakBonus", streakBonus).putInt("streakN", streakN)
@@ -66,6 +78,7 @@ object AppSettings {
     }
 
     fun reset() {
+        base = 0; style = 0; intensity = 70; accent = 0L
         sessionSize = 20; retryMissed = true; carryOver = true; carryPercent = 25
         streakBonus = true; streakN = 3; streakMult = 1.5f; flipStyle = 1; ratingStyle = 0; showBorder = true
         cardTheme = 0
@@ -99,7 +112,6 @@ private fun OnOff(checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** All settings, without a screen around them (also used inside the gear dialog while studying). */
 @Composable
 fun SettingsContent() {
     val ctx = LocalContext.current
@@ -107,11 +119,49 @@ fun SettingsContent() {
     fun changed(block: () -> Unit) { block(); AppSettings.save(ctx) }
 
     Column {
-        Section("Theme", "Pick how the app looks. All the coloured ones are calm dark themes: Charcoal (grey), Slate (blue-grey), Sand (warm brown), Forest (soft green), Plum (soft purple).") {
-            Choices(themeNames.mapIndexed { i, n -> n to i }, s.theme) { v -> changed { s.theme = v } }
+        Section(
+            "Base",
+            "Dark puts everything on a deep background. Light uses a bright background. This affects every screen."
+        ) {
+            Choices(baseNames.mapIndexed { i, n -> n to i }, s.base) { v -> changed { s.base = v } }
         }
 
-        Section("Card background", "Choose how the study card looks. Green board and Black show light text; the others show dark text. Lined adds faint horizontal rules so it feels like notebook paper — the lines are kept light so they never fight your content.") {
+        Section(
+            "Style",
+            "Plain: flat, calm surfaces — the cleanest option.\n" +
+                "Colorful: each deck tile gets its own vivid gradient, and the background has soft glowing blobs.\n" +
+                "Liquid: frosted glass panels over a soft blurred background — modern and calm."
+        ) {
+            Choices(styleNames.mapIndexed { i, n -> n to i }, s.style) { v -> changed { s.style = v } }
+        }
+
+        Section(
+            "Intensity",
+            "How strong the colours, glow, and transparency are. 30% is subtle, 70% is balanced, 100% is vivid."
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Slider(
+                    value = s.intensity.toFloat(),
+                    onValueChange = { v -> changed { s.intensity = v.toInt() } },
+                    valueRange = 0f..100f,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("${s.intensity}%")
+            }
+        }
+
+        Section(
+            "Accent colour",
+            "The tint used for buttons, the highlight in the title, and (when a deck has no colour of its own) deck tiles. Auto picks a soft purple."
+        ) {
+            Choices(accentPalette.map { it.first to it.second }, s.accent) { v -> changed { s.accent = v } }
+        }
+
+        Section(
+            "Card background",
+            "How the study card looks while you are answering. Black and Green board show light text; the others show dark text."
+        ) {
             Choices(
                 listOf(
                     "Black" to 0,
@@ -126,14 +176,14 @@ fun SettingsContent() {
 
         Section(
             "Cards per study set",
-            "How many cards you study before a short break screen. Example: a chapter has 100 cards and you pick 20. You study 20, then you can start the next 20."
+            "How many cards you study before a short break screen."
         ) {
             Choices(listOf("10" to 10, "20" to 20, "30" to 30, "50" to 50, "All" to 0), s.sessionSize) { v -> changed { s.sessionSize = v } }
         }
 
         Section(
             "How you answer",
-            "Swipe: swipe the card UP for Easy (double tick), LEFT for Good (single tick), DOWN for Again (cross). Swipe RIGHT to go back one card. Swipe LEFT or RIGHT on the very first faces just turns the card.\n" +
+            "Swipe: UP = Easy (double tick), LEFT = Good (single tick), DOWN = Again (cross), RIGHT = go back one card.\n" +
                 "Buttons: four buttons appear on the last face: Again, Hard, Good, Easy."
         ) {
             Choices(listOf("Swipe" to 0, "Buttons" to 1), s.ratingStyle) { v -> changed { s.ratingStyle = v } }
@@ -141,14 +191,12 @@ fun SettingsContent() {
 
         Section(
             "Repeat missed cards in the same set",
-            "ON: a card you missed comes back at the end of the same set, again and again, until you get it right. Example: you miss 5 of 20 cards, and those 5 come back until you answer them correctly.\n" +
-                "OFF: a missed card is not repeated now. It comes back later by the normal schedule."
+            "ON: a missed card comes back at the end of the same set until you get it right. OFF: it only returns later."
         ) { OnOff(s.retryMissed) { v -> changed { s.retryMissed = v } } }
 
         Section(
             "Bring missed cards back in later sets",
-            "ON: cards you got wrong keep showing up in the next sets too, mixed in with new cards, until you answer them right several times in a row. " +
-                "Example with 25%: a set of 20 cards = 15 new cards + 5 older cards you struggled with.\nOFF: every set has only new or due cards."
+            "ON: cards you got wrong mix into the next sets. OFF: every set has only new or due cards."
         ) {
             OnOff(s.carryOver) { v -> changed { s.carryOver = v } }
             if (s.carryOver) {
@@ -159,8 +207,7 @@ fun SettingsContent() {
 
         Section(
             "Reward correct streaks",
-            "ON: when you answer a card right several times in a row, the app waits longer before showing it again, so you see it less often. " +
-                "Example: 3 in a row and x1.5: a card that would come back in 10 days comes back in 15 days. A wrong answer sets the streak back to zero.\nOFF: every card follows the normal schedule only."
+            "ON: answer right several times in a row and the waiting time grows. OFF: every card follows the normal schedule only."
         ) {
             OnOff(s.streakBonus) { v -> changed { s.streakBonus = v } }
             if (s.streakBonus) {
@@ -173,7 +220,7 @@ fun SettingsContent() {
 
         Section(
             "Card turn animation",
-            "3D flip turns the card like a real card. Smooth fade is lighter. None changes faces instantly. (If your phone has animations switched off, the app respects that.)"
+            "3D flip turns the card like a real card. Smooth fade is lighter. None changes faces instantly."
         ) {
             Choices(listOf("3D flip" to 1, "Smooth fade" to 0, "None" to 2), s.flipStyle) { v -> changed { s.flipStyle = v } }
         }
