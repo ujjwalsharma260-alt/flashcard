@@ -573,14 +573,12 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                         thumb = if (up) 1 else -1
                                         thumbScale.snapTo(0.6f)
                                         thumbAlpha.snapTo(0f)
-                                        launch {
-                                            thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
-                                            thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
-                                            delay(500L)
-                                            thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
-                                            thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
-                                            thumb = 0
-                                        }
+                                        thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
+                                        thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
+                                        delay(500L)
+                                        thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
+                                        thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
+                                        thumb = 0
                                         answer(i)
                                         delay(400L)
                                         busy = false
