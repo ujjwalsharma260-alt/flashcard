@@ -14,7 +14,6 @@ private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replac
 private val latexCommand = Regex("\\\\[a-zA-Z]+")
 private val longWord = Regex("[A-Za-z]{4,}")
 
-/** True for pasted raw LaTeX such as  \frac{1}{2}mv^2  that has no $ or \( \) around it. */
 private fun looksLikeRawLatex(t: String): Boolean {
     if (t.contains('$') || t.contains("\\(") || t.contains("\\[") || t.contains("\\begin")) return false
     if (!latexCommand.containsMatchIn(t)) return false
@@ -39,9 +38,8 @@ private const val SHELL =
         "<script src='katex/katex.min.js'></script><script src='katex/auto-render.min.js'></script>" +
         "<script src='katex/shell.js'></script>" +
         "<style>html,body{margin:0;height:100%;background:transparent}" +
-        "body{display:flex;flex-direction:column;align-items:center;justify-content:center;" +
-        "font-family:sans-serif;font-size:21px;text-align:center;overflow-wrap:anywhere}" +
-        "#c{width:100%;max-width:100%;box-sizing:border-box;padding:14px}" +
+        "body{display:flex;font-family:sans-serif;font-size:21px;text-align:center;overflow-wrap:anywhere}" +
+        "#c{margin:auto;padding:14px;max-width:100%}" +
         ".i{margin:10px 0;white-space:pre-wrap}" +
         ".katex-display{overflow-x:auto;overflow-y:hidden;margin:.6em 0}</style></head>" +
         "<body><div id='c'></div></body></html>"
@@ -52,10 +50,6 @@ private class Holder {
     var last: String? = null
 }
 
-/**
- * Renders text + LaTeX offline with bundled KaTeX. The page is loaded ONCE; later faces are pushed in with JavaScript,
- * which is much faster than reloading a page (this keeps card turns smooth). Content is centred vertically and horizontally.
- */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun FaceView(items: List<Pair<String, String>>, dark: Boolean, modifier: Modifier = Modifier) {
