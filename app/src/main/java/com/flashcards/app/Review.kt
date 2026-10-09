@@ -124,6 +124,8 @@ private fun animationsOn(ctx: Context): Boolean =
 private val swipeEase = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 private val flipInEase = CubicBezierEasing(0.34f, 1.2f, 0.64f, 1f)
 private val grayText = Color(0xFF8A8A92)
+private val tickGreen = Color(0xFF4CAF50)
+private val crossRed = Color(0xFFEF5350)
 
 @Composable
 fun ReviewScreen(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit, back: () -> Unit) {
@@ -167,23 +169,27 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val offX = remember { Animatable(0f) }
     val offY = remember { Animatable(0f) }
 
-    // ---- thumbs feedback state ----
-    var thumb by remember { mutableStateOf(0) }        // 0 none, 1 up, -1 down
-    var thumbTrigger by remember { mutableStateOf(0) } // bump to trigger animation
-    val thumbAlpha = remember { Animatable(0f) }
-    val thumbScale = remember { Animatable(0.6f) }
+    // ---- swipe feedback icon state ----
+    // 0 = none, 1 = single tick (Good), 2 = double tick (Easy), 3 = cross (Again)
+    var iconType by remember { mutableStateOf(0) }
+    var iconTrigger by remember { mutableStateOf(0) }
+    val iconAlpha = remember { Animatable(0f) }
+    val iconScale = remember { Animatable(0.5f) }
 
-    // The thumbs animation runs safely inside LaunchedEffect
-    LaunchedEffect(thumbTrigger) {
-        if (thumbTrigger == 0) return@LaunchedEffect
-        thumbScale.snapTo(0.6f)
-        thumbAlpha.snapTo(0f)
-        thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
-        thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
-        delay(500L)
-        thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
-        thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
-        thumb = 0
+    LaunchedEffect(iconTrigger) {
+        if (iconTrigger == 0) return@LaunchedEffect
+        iconScale.snapTo(0.5f)
+        iconAlpha.snapTo(0f)
+        coroutineScope {
+            launch { iconScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase)) }
+            launch { iconAlpha.animateTo(1f, tween(if (anim) 150 else 0)) }
+        }
+        delay(380L)
+        coroutineScope {
+            launch { iconAlpha.animateTo(0f, tween(if (anim) 180 else 0)) }
+            launch { iconScale.animateTo(1.15f, tween(if (anim) 180 else 0)) }
+        }
+        iconType = 0
     }
 
     fun curCard(): Pair<Flashcard, List<List<Item>>>? {
@@ -270,13 +276,13 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     rot.animateTo(90f, tween(220, easing = FastOutSlowInEasing))
                     face += 1
                     rot.snapTo(-90f)
-                    delay(45)
+                    delay(45L)
                     rot.animateTo(0f, tween(280, easing = flipInEase))
                 }
                 else -> {
                     fade.animateTo(0f, tween(110))
                     face += 1
-                    delay(50)
+                    delay(50L)
                     fade.animateTo(1f, tween(150))
                 }
             }
@@ -322,6 +328,14 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         persist()
     }
 
+    fun navPrevKeepRating() {
+        if (pos > 0) {
+            pos = pos - 1
+            face = 0
+            persist()
+        }
+    }
+
     fun goBack() {
         val h = history.lastOrNull() ?: return
         history = history.dropLast(1)
@@ -356,22 +370,30 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         }
     }
 
-    fun answerAnim(rating: Int) {
+    // dir: 0 = up, 1 = down, 2 = right
+    // icon: 1 = single tick, 2 = double tick, 3 = cross
+    fun rateAndFly(dir: Int, rating: Int, icon: Int) {
         if (busy) return
         busy = true
-        // thumbs feedback fires the moment the swipe is accepted
-        thumb = if (rating == 0) -1 else 1
-        thumbTrigger += 1
+        iconType = icon
+        iconTrigger += 1
         scope.launch {
             val dur = if (anim) 300 else 0
-            val ty = (if (rating == 0) 1f else -1f) * screenH
+            val tx = if (dir == 2) screenW else 0f
+            val ty = when (dir) {
+                0 -> -screenH
+                1 -> screenH
+                else -> 0f
+            }
             coroutineScope {
+                launch { offX.animateTo(tx, tween(dur, easing = swipeEase)) }
                 launch { offY.animateTo(ty, tween(dur, easing = swipeEase)) }
                 launch { fade.animateTo(0f, tween(dur)) }
             }
             answer(rating)
-            offX.snapTo(0f); offY.snapTo(0f)
-            delay(40)
+            offX.snapTo(0f)
+            offY.snapTo(0f)
+            delay(40L)
             fade.animateTo(1f, tween(if (anim) 170 else 0))
             busy = false
         }
@@ -380,8 +402,12 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     fun navAnim(forward: Boolean) {
         if (busy) return
         val o = order ?: return
-        val np = nextUnanswered(o, answered, pos)
-        if ((forward && (np < 0 || np == pos)) || (!forward && history.isEmpty())) { springBack(); return }
+        if (forward) {
+            val np = nextUnanswered(o, answered, pos)
+            if (np < 0 || np == pos) { springBack(); return }
+        } else {
+            if (pos <= 0) { springBack(); return }
+        }
         busy = true
         scope.launch {
             val dur = if (anim) 280 else 0
@@ -390,10 +416,10 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                 launch { offX.animateTo(tx, tween(dur, easing = swipeEase)) }
                 launch { fade.animateTo(0f, tween(dur)) }
             }
-            if (forward) navNext() else goBack()
+            if (forward) navNext() else navPrevKeepRating()
             offY.snapTo(0f)
             offX.snapTo(-tx * 0.5f)
-            delay(40)
+            delay(40L)
             coroutineScope {
                 launch { offX.animateTo(0f, tween(if (anim) 260 else 0, easing = swipeEase)) }
                 launch { fade.animateTo(1f, tween(if (anim) 200 else 0)) }
@@ -408,11 +434,24 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         val dy = offY.value
         val cd = curCard()
         val last = cd == null || face >= cd.second.lastIndex
-        if (AppSettings.ratingStyle == 0 && abs(dy) >= abs(dx) && abs(dy) > thr) {
+        val vertical = abs(dy) > abs(dx)
+
+        if (AppSettings.ratingStyle == 0 && vertical && abs(dy) > thr) {
+            // swipe rating mode: up = Easy, down = Again
             if (!last) { springBack(); advance() }
-            else answerAnim(if (dy < 0) 2 else 0)
-        } else if (abs(dx) > thr && abs(dx) > abs(dy)) {
-            navAnim(dx > 0)
+            else if (dy < 0) rateAndFly(0, 3, 2) else rateAndFly(1, 0, 3)
+        } else if (!vertical && abs(dx) > thr) {
+            if (dx > 0) {
+                // right: Good (rating mode) or next card (button mode)
+                if (AppSettings.ratingStyle == 0) {
+                    if (!last) { springBack(); advance() } else rateAndFly(2, 2, 1)
+                } else {
+                    navAnim(true)
+                }
+            } else {
+                // left: previous card, no rating
+                navAnim(false)
+            }
         } else {
             springBack()
         }
@@ -465,7 +504,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     val cd = curCard()
                     val faceList = cd?.second ?: emptyList()
                     val fi = if (faceList.isEmpty()) 0 else face.coerceIn(0, faceList.lastIndex)
-                    val last = faceList.isEmpty() || fi >= faceList.lastIndex
                     val faceItems = faceList.getOrElse(fi) { emptyList() }
                     val textItems = faceItems.filter { it.type == "TEXT" || it.type == "LATEX" }
                     val imgs = faceItems.filter { it.type == "IMAGE" }
@@ -473,7 +511,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     val auds = faceItems.filter { it.type == "AUDIO" }
                     val hasText = textItems.isNotEmpty()
                     val visuals = imgs.isNotEmpty() || inks.isNotEmpty()
-                    val swipeRating = AppSettings.ratingStyle == 0 && last
                     val showBorder = AppSettings.showBorder
 
                     Box(
@@ -512,18 +549,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 }
                             }
                         }
-                        Text(
-                            "Correct", color = Color(0xFF66BB6A), fontSize = 30.sp,
-                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 36.dp).graphicsLayer {
-                                alpha = if (swipeRating) (-offY.value / thr).coerceIn(0f, 1f) else 0f
-                            }
-                        )
-                        Text(
-                            "Incorrect", color = Color(0xFFEF5350), fontSize = 30.sp,
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp).graphicsLayer {
-                                alpha = if (swipeRating) (offY.value / thr).coerceIn(0f, 1f) else 0f
-                            }
-                        )
                         Box(
                             Modifier.matchParentSize()
                                 .pointerInput(pos, face) {
@@ -535,7 +560,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 .pointerInput(pos, face) {
                                     var dx = 0f
                                     var dy = 0f
-                                    var locked = 0   // 0 unknown, 1 horizontal, 2 vertical
+                                    var locked = 0
                                     detectDragGestures(
                                         onDragStart = { dx = offX.value; dy = offY.value; locked = 0 },
                                         onDrag = { change, amt ->
@@ -565,7 +590,14 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     if (AppSettings.ratingStyle == 1 && last) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
-                                Button(onClick = { answerAnim(i) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
+                                Button(onClick = {
+                                    when (i) {
+                                        0 -> rateAndFly(1, 0, 3)
+                                        1 -> rateAndFly(1, 1, 3)
+                                        2 -> rateAndFly(2, 2, 1)
+                                        else -> rateAndFly(0, 3, 2)
+                                    }
+                                }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
                             }
                         }
                     }
@@ -590,17 +622,22 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             }
         }
 
-        // ---- thumbs feedback overlay (middle of the screen) ----
-        if (thumb != 0) {
+        // ---- swipe feedback icon in the middle of the screen ----
+        if (iconType != 0) {
             Box(
                 Modifier.align(Alignment.Center).graphicsLayer {
-                    alpha = thumbAlpha.value
-                    scaleX = thumbScale.value
-                    scaleY = thumbScale.value
+                    alpha = iconAlpha.value
+                    scaleX = iconScale.value
+                    scaleY = iconScale.value
                 }
             ) {
                 Text(
-                    text = if (thumb == 1) "👍" else "👎",
+                    text = when (iconType) {
+                        1 -> "✓"
+                        2 -> "✓✓"
+                        else -> "✗"
+                    },
+                    color = if (iconType == 3) crossRed else tickGreen,
                     fontSize = 96.sp
                 )
             }
@@ -612,8 +649,8 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     Text("How to study", color = Color.White, fontSize = 26.sp)
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Tap the card to turn it.\n\n⬆  Swipe UP: I knew it  👍\n⬇  Swipe DOWN: I missed it  👎\n➡  Swipe RIGHT: next card\n⬅  Swipe LEFT: go back / undo\n\n" +
-                            "On a card with several faces, swipe up or down only turns it until you reach the last face.",
+                        "Tap the card to turn it.\n\n⬆  Swipe UP: Easy  ✓✓\n➡  Swipe RIGHT: Good  ✓\n⬇  Swipe DOWN: Again  ✗\n⬅  Swipe LEFT: go back\n\n" +
+                            "On a card with several faces, swipe up or right only turns it until you reach the last face.",
                         color = Color(0xFFD8D8DE), fontSize = 17.sp, textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(22.dp))
