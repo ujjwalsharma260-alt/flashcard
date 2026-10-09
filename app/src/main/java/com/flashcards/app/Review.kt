@@ -45,8 +45,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// ---------- saved progress ("continue where you left off") ----------
-
 class SavedSession(
     val order: List<Long>, val answered: Set<Int>, val pos: Int, val total: Int,
     val missed: Set<Long>, val correct: Int, val wrong: Int, val streak: Int
@@ -96,8 +94,6 @@ object Resume {
         e.apply()
     }
 }
-
-// ---------- study screen ----------
 
 private class Undo(
     val kind: Int,
@@ -169,8 +165,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val offX = remember { Animatable(0f) }
     val offY = remember { Animatable(0f) }
 
-    // ---- swipe feedback icon state ----
-    // 0 = none, 1 = single tick (Good), 2 = double tick (Easy), 3 = cross (Again)
     var iconType by remember { mutableStateOf(0) }
     var iconTrigger by remember { mutableStateOf(0) }
     val iconAlpha = remember { Animatable(0f) }
@@ -370,8 +364,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         }
     }
 
-    // dir: 0 = up, 1 = down, 2 = right
-    // icon: 1 = single tick, 2 = double tick, 3 = cross
     fun rateAndFly(dir: Int, rating: Int, icon: Int) {
         if (busy) return
         busy = true
@@ -433,23 +425,20 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         val dx = offX.value
         val dy = offY.value
         val cd = curCard()
-        val last = cd == null || face >= cd.second.lastIndex
+        val isLast = cd == null || face >= cd.second.lastIndex
         val vertical = abs(dy) > abs(dx)
 
         if (AppSettings.ratingStyle == 0 && vertical && abs(dy) > thr) {
-            // swipe rating mode: up = Easy, down = Again
-            if (!last) { springBack(); advance() }
+            if (!isLast) { springBack(); advance() }
             else if (dy < 0) rateAndFly(0, 3, 2) else rateAndFly(1, 0, 3)
         } else if (!vertical && abs(dx) > thr) {
             if (dx > 0) {
-                // right: Good (rating mode) or next card (button mode)
                 if (AppSettings.ratingStyle == 0) {
-                    if (!last) { springBack(); advance() } else rateAndFly(2, 2, 1)
+                    if (!isLast) { springBack(); advance() } else rateAndFly(2, 2, 1)
                 } else {
                     navAnim(true)
                 }
             } else {
-                // left: previous card, no rating
                 navAnim(false)
             }
         } else {
@@ -504,6 +493,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     val cd = curCard()
                     val faceList = cd?.second ?: emptyList()
                     val fi = if (faceList.isEmpty()) 0 else face.coerceIn(0, faceList.lastIndex)
+                    val isLast = faceList.isEmpty() || fi >= faceList.lastIndex
                     val faceItems = faceList.getOrElse(fi) { emptyList() }
                     val textItems = faceItems.filter { it.type == "TEXT" || it.type == "LATEX" }
                     val imgs = faceItems.filter { it.type == "IMAGE" }
@@ -587,7 +577,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                         )
                     }
                     auds.forEach { AudioPlayButton(it.data) }
-                    if (AppSettings.ratingStyle == 1 && last) {
+                    if (AppSettings.ratingStyle == 1 && isLast) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
                                 Button(onClick = {
@@ -622,7 +612,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             }
         }
 
-        // ---- swipe feedback icon in the middle of the screen ----
         if (iconType != 0) {
             Box(
                 Modifier.align(Alignment.Center).graphicsLayer {
