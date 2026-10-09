@@ -167,6 +167,25 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val offX = remember { Animatable(0f) }
     val offY = remember { Animatable(0f) }
 
+    // ---- thumbs feedback state ----
+    var thumb by remember { mutableStateOf(0) }        // 0 none, 1 up, -1 down
+    var thumbTrigger by remember { mutableStateOf(0) } // bump to trigger animation
+    val thumbAlpha = remember { Animatable(0f) }
+    val thumbScale = remember { Animatable(0.6f) }
+
+    // The thumbs animation runs safely inside LaunchedEffect
+    LaunchedEffect(thumbTrigger) {
+        if (thumbTrigger == 0) return@LaunchedEffect
+        thumbScale.snapTo(0.6f)
+        thumbAlpha.snapTo(0f)
+        thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase))
+        thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0))
+        delay(500L)
+        thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0))
+        thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0))
+        thumb = 0
+    }
+
     fun curCard(): Pair<Flashcard, List<List<Item>>>? {
         val o = order ?: return null
         val id = o.getOrNull(pos) ?: return null
@@ -340,6 +359,9 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     fun answerAnim(rating: Int) {
         if (busy) return
         busy = true
+        // thumbs feedback fires the moment the swipe is accepted
+        thumb = if (rating == 0) -1 else 1
+        thumbTrigger += 1
         scope.launch {
             val dur = if (anim) 300 else 0
             val ty = (if (rating == 0) 1f else -1f) * screenH
@@ -513,13 +535,24 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 .pointerInput(pos, face) {
                                     var dx = 0f
                                     var dy = 0f
+                                    var locked = 0   // 0 unknown, 1 horizontal, 2 vertical
                                     detectDragGestures(
-                                        onDragStart = { dx = offX.value; dy = offY.value },
+                                        onDragStart = { dx = offX.value; dy = offY.value; locked = 0 },
                                         onDrag = { change, amt ->
                                             if (!busy) {
                                                 change.consume()
-                                                dx += amt.x; dy += amt.y
-                                                scope.launch { offX.snapTo(dx); offY.snapTo(dy) }
+                                                if (locked == 0) {
+                                                    if (abs(amt.x) > 2f || abs(amt.y) > 2f) {
+                                                        locked = if (abs(amt.x) > abs(amt.y)) 1 else 2
+                                                    }
+                                                }
+                                                if (locked == 1) {
+                                                    dx += amt.x
+                                                    scope.launch { offX.snapTo(dx) }
+                                                } else if (locked == 2) {
+                                                    dy += amt.y
+                                                    scope.launch { offY.snapTo(dy) }
+                                                }
                                             }
                                         },
                                         onDragEnd = { release() },
@@ -557,13 +590,29 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             }
         }
 
+        // ---- thumbs feedback overlay (middle of the screen) ----
+        if (thumb != 0) {
+            Box(
+                Modifier.align(Alignment.Center).graphicsLayer {
+                    alpha = thumbAlpha.value
+                    scaleX = thumbScale.value
+                    scaleY = thumbScale.value
+                }
+            ) {
+                Text(
+                    text = if (thumb == 1) "👍" else "👎",
+                    fontSize = 96.sp
+                )
+            }
+        }
+
         if (!AppSettings.hintSeen && o != null && o.isNotEmpty() && !finishedNow) {
             Box(Modifier.fillMaxSize().background(Color(0xE8000000)).clickable { }, contentAlignment = Alignment.Center) {
                 Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("How to study", color = Color.White, fontSize = 26.sp)
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Tap the card to turn it.\n\n⬆  Swipe UP: I knew it\n⬇  Swipe DOWN: I missed it\n➡  Swipe RIGHT: next card\n⬅  Swipe LEFT: go back / undo\n\n" +
+                        "Tap the card to turn it.\n\n⬆  Swipe UP: I knew it  👍\n⬇  Swipe DOWN: I missed it  👎\n➡  Swipe RIGHT: next card\n⬅  Swipe LEFT: go back / undo\n\n" +
                             "On a card with several faces, swipe up or down only turns it until you reach the last face.",
                         color = Color(0xFFD8D8DE), fontSize = 17.sp, textAlign = TextAlign.Center
                     )
