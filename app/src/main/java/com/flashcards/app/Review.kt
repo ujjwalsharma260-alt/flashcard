@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -124,6 +126,16 @@ private val flipInEase = CubicBezierEasing(0.34f, 1.2f, 0.64f, 1f)
 private val grayText = Color(0xFF8A8A92)
 private val tickGreen = Color(0xFF4CAF50)
 private val crossRed = Color(0xFFEF5350)
+
+// Card theme helpers — 0 Black, 1 Green board, 2 Whiteboard, 3 Paper, 4 Lined
+private fun cardBgOf(t: Int): Color = when (t) {
+    1 -> Color(0xFF1E3D2A)
+    2 -> Color(0xFFF4F4F4)
+    3 -> Color(0xFFF5EBD8)
+    4 -> Color(0xFFFCF6E3)
+    else -> Color.Black
+}
+private fun cardFgOf(t: Int): Color = if (t <= 1) Color.White else Color(0xFF1A1A1A)
 
 @Composable
 fun ReviewScreen(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit, back: () -> Unit) {
@@ -587,6 +599,10 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val o = order
     val cardShape = RoundedCornerShape(28.dp)
     val titleText = if (mode == 0) "" else listOf("", "Bookmarked", "Favorites", "Weak cards", "Missed today")[mode.coerceIn(0, 4)]
+    val cardTheme = AppSettings.cardTheme
+    val cardBg = cardBgOf(cardTheme)
+    val cardFg = cardFgOf(cardTheme)
+    val faceDark = cardTheme <= 1
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
@@ -660,6 +676,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     val hasText = textItems.isNotEmpty()
                     val visuals = imgs.isNotEmpty() || inks.isNotEmpty()
                     val showBorder = AppSettings.showBorder
+                    val borderCol = if (cardTheme <= 1) Color(0xFF2E2E34) else Color(0x33000000)
 
                     Box(
                         Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)
@@ -674,16 +691,28 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 scaleY = 0.97f + 0.03f * fade.value
                             }
                             .clip(cardShape)
-                            .background(Color.Black)
-                            .then(if (showBorder) Modifier.border(1.5.dp, Color(0xFF2E2E34), cardShape) else Modifier)
+                            .background(cardBg)
+                            .then(if (showBorder) Modifier.border(1.5.dp, borderCol, cardShape) else Modifier)
                     ) {
-                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Lined paper background (faint horizontal rules, drawn behind content)
+                        if (cardTheme == 4) {
+                            Canvas(Modifier.matchParentSize()) {
+                                val gap = 42.dp.toPx()
+                                var y = gap
+                                val lc = Color(0x222A2A2A)
+                                while (y < size.height) {
+                                    drawLine(lc, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.4f)
+                                    y += gap
+                                }
+                            }
+                        }
+                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Box(Modifier.then(if (hasText || !visuals) Modifier.weight(1f) else Modifier.height(1.dp)).fillMaxWidth()) {
-                                FaceView(textItems.map { it.type to it.data }, true, Modifier.fillMaxSize())
+                                FaceView(textItems.map { it.type to it.data }, faceDark, Modifier.fillMaxSize())
                             }
                             if (visuals) {
                                 if (!hasText && imgs.isEmpty() && inks.size == 1) {
-                                    InkView(inks[0].data, Modifier.weight(1f).fillMaxWidth(), fit = true, color = Color.White)
+                                    InkView(inks[0].data, Modifier.weight(1f).fillMaxWidth(), fit = true, color = cardFg)
                                 } else {
                                     Box(
                                         Modifier.then(if (hasText) Modifier.heightIn(max = 240.dp) else Modifier.weight(1f)).fillMaxWidth(),
@@ -691,12 +720,23 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                     ) {
                                         Column(Modifier.verticalScroll(rememberScrollState())) {
                                             imgs.forEach { im -> ImageThumb(im.data, Modifier.fillMaxWidth().padding(4.dp)) }
-                                            inks.forEach { ik -> InkView(ik.data, Modifier.fillMaxWidth().padding(4.dp), color = Color.White) }
+                                            inks.forEach { ik -> InkView(ik.data, Modifier.fillMaxWidth().padding(4.dp), color = cardFg) }
                                         }
                                     }
                                 }
                             }
                         }
+                        // Swipe tint: green when dragging up/left, red when dragging down. Full card area, up to 25% opacity.
+                        Box(Modifier.matchParentSize().drawBehind {
+                            val up = -offY.value
+                            val left = -offX.value
+                            val down = offY.value
+                            val gAmt = (maxOf(up, left) / thr).coerceIn(0f, 1f) * 0.25f
+                            val rAmt = (maxOf(down, 0f) / thr).coerceIn(0f, 1f) * 0.25f
+                            if (gAmt > 0f) drawRect(Color(0xFF4CAF50).copy(alpha = gAmt), size = size)
+                            if (rAmt > 0f) drawRect(Color(0xFFEF5350).copy(alpha = rAmt), size = size)
+                        })
+                        // Drag gesture layer (on top so it receives all input)
                         Box(
                             Modifier.matchParentSize()
                                 .pointerInput(pos, face) {
@@ -769,17 +809,24 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
 
                     val shown = min(answered.count { it < setTotal } + 1, max(setTotal, 1))
                     val pct = if (correctCnt + wrongCnt == 0) 100 else correctCnt * 100 / (correctCnt + wrongCnt)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.clickable { toggleFlag(true) }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Column(
+                            Modifier.align(Alignment.CenterStart).clickable { toggleFlag(true) }.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Text("🔖", fontSize = 22.sp, modifier = Modifier.alpha(if ((cd?.first?.bookmark ?: 0) == 1) 1f else 0.4f))
                             Text("$shown of $setTotal", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
-                        Spacer(Modifier.weight(1f))
-                        Column(Modifier.clickable { showCardMenu = true }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            Modifier.align(Alignment.Center).clickable { showCardMenu = true }.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Box(Modifier.size(width = 34.dp, height = 24.dp).border(2.dp, grayText, RoundedCornerShape(5.dp)))
                         }
-                        Spacer(Modifier.weight(1f))
-                        Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.End) {
+                        Column(
+                            Modifier.align(Alignment.CenterEnd).padding(6.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
                             Text("Correct: $pct%", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                             Text("Streak: $streak", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
@@ -803,7 +850,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                         else -> "✗"
                     },
                     color = if (iconType == 3) crossRed else tickGreen,
-                    fontSize = 96.sp
+                    fontSize = 34.sp
                 )
             }
         }
