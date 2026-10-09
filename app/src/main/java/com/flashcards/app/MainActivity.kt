@@ -3,13 +3,11 @@ package com.flashcards.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 
 class MainActivity : ComponentActivity() {
-    /** Asks Android to run this app at the screen's highest refresh rate (e.g. 120 Hz) instead of 60 Hz. */
     @Suppress("DEPRECATION")
     private fun requestHighRefreshRate() {
         try {
@@ -32,13 +30,15 @@ class MainActivity : ComponentActivity() {
         requestHighRefreshRate()
         val db = Db.get(this)
         setContent {
-            val theme = AppSettings.theme      // 0 System, 1 Light, 2..6 = Charcoal, Slate, Sand, Forest, Plum
-            val sysDark = isSystemInDarkTheme()
-            val dark = theme >= 2 || (theme == 0 && sysDark)
-            val scheme = if (!dark) lightColorScheme() else darkPalette(if (theme >= 2) theme - 2 else 0)
+            val base = AppSettings.base
+            val style = AppSettings.style
+            val intensity = AppSettings.intensity
+            val accent = AppSettings.accent
+            val dark = base == 0
+            val scheme = buildScheme(base, style, intensity, accent)
             MaterialTheme(colorScheme = scheme) {
                 Surface(Modifier.fillMaxSize()) {
-                    AppRoot(db, dark, theme) { AppSettings.theme = it; AppSettings.save(this@MainActivity) }
+                    AppRoot(db, dark, 0) { /* legacy onTheme unused */ }
                 }
             }
         }
