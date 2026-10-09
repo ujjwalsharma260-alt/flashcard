@@ -30,6 +30,7 @@ object AppSettings {
     var flipStyle by mutableStateOf(1)            // 0 smooth fade, 1 3D flip, 2 none
     var ratingStyle by mutableStateOf(0)          // 0 swipe up/down, 1 four buttons
     var showBorder by mutableStateOf(true)        // thin rounded border around the study card
+    var cardTheme by mutableStateOf(0)            // 0 Black, 1 Green board, 2 Whiteboard, 3 Paper, 4 Lined
     var hintSeen by mutableStateOf(false)
     private var loaded = false
 
@@ -48,6 +49,7 @@ object AppSettings {
         flipStyle = p.getInt("flipStyle", 1)
         ratingStyle = p.getInt("ratingStyle", 0)
         showBorder = p.getBoolean("showBorder", true)
+        cardTheme = p.getInt("cardTheme", 0)
         hintSeen = p.getBoolean("hintSeen", false)
     }
 
@@ -59,12 +61,14 @@ object AppSettings {
             .putBoolean("streakBonus", streakBonus).putInt("streakN", streakN)
             .putFloat("streakMult", streakMult).putInt("flipStyle", flipStyle)
             .putInt("ratingStyle", ratingStyle).putBoolean("showBorder", showBorder)
+            .putInt("cardTheme", cardTheme)
             .putBoolean("hintSeen", hintSeen).apply()
     }
 
     fun reset() {
         sessionSize = 20; retryMissed = true; carryOver = true; carryPercent = 25
         streakBonus = true; streakN = 3; streakMult = 1.5f; flipStyle = 1; ratingStyle = 0; showBorder = true
+        cardTheme = 0
     }
 }
 
@@ -107,6 +111,19 @@ fun SettingsContent() {
             Choices(themeNames.mapIndexed { i, n -> n to i }, s.theme) { v -> changed { s.theme = v } }
         }
 
+        Section("Card background", "Choose how the study card looks. Green board and Black show light text; the others show dark text. Lined adds faint horizontal rules so it feels like notebook paper — the lines are kept light so they never fight your content.") {
+            Choices(
+                listOf(
+                    "Black" to 0,
+                    "Green board" to 1,
+                    "Whiteboard" to 2,
+                    "Paper" to 3,
+                    "Lined" to 4
+                ),
+                s.cardTheme
+            ) { v -> changed { s.cardTheme = v } }
+        }
+
         Section(
             "Cards per study set",
             "How many cards you study before a short break screen. Example: a chapter has 100 cards and you pick 20. You study 20, then you can start the next 20."
@@ -116,7 +133,7 @@ fun SettingsContent() {
 
         Section(
             "How you answer",
-            "Swipe: swipe the card UP if you knew it, DOWN if you missed it. (Swipe right = next card, left = go back.)\n" +
+            "Swipe: swipe the card UP for Easy (double tick), LEFT for Good (single tick), DOWN for Again (cross). Swipe RIGHT to go back one card. Swipe LEFT or RIGHT on the very first faces just turns the card.\n" +
                 "Buttons: four buttons appear on the last face: Again, Hard, Good, Easy."
         ) {
             Choices(listOf("Swipe" to 0, "Buttons" to 1), s.ratingStyle) { v -> changed { s.ratingStyle = v } }
