@@ -7,6 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Make AI context bundle
+        if: always()
+        run: bash make_ai_bundle.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -21,3 +24,8 @@ jobs:
         with:
           name: flashcards-apk
           path: app/build/outputs/apk/*/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-context
+          path: AI_FULL_CONTEXT.md
