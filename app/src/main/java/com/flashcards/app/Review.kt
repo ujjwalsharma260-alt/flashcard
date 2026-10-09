@@ -277,7 +277,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val finishedNow = order.let { it != null && it.isNotEmpty() && answered.size >= it.size }
     LaunchedEffect(finishedNow) { if (finishedNow) Resume.clear(ctx, deckId, mode) }
 
-    // Speed game timer — resets when a new card appears
     LaunchedEffect(pos, speedActive) {
         if (!speedActive) return@LaunchedEffect
         speedRemaining = speedSeconds
@@ -291,34 +290,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         if (face < cd.second.lastIndex) {
             face = cd.second.lastIndex
         }
-    }
-
-    // Browse mode timer — resets when pos OR face changes
-    LaunchedEffect(pos, face, browseActive) {
-        if (!browseActive) return@LaunchedEffect
-        val cd = curCard() ?: return@LaunchedEffect
-        val currentFace = cd.second.getOrNull(face.coerceAtMost(cd.second.lastIndex))
-        val audio = currentFace?.firstOrNull { it.type == "AUDIO" }
-        if (audio != null) {
-            Player.stop()
-            Player.play(ctx, audio.data) { }
-        }
-        browseRemaining = browseDelay
-        var remaining = browseDelay
-        while (remaining > 0) {
-            delay(1000L)
-            remaining -= 1
-            browseRemaining = remaining
-        }
-        if (face < cd.second.lastIndex) {
-            face = cd.second.lastIndex
-        } else {
-            navNext()
-        }
-    }
-
-    LaunchedEffect(browseActive) {
-        if (!browseActive) Player.stop()
     }
 
     fun advance() {
@@ -422,6 +393,33 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         persist()
     }
 
+    LaunchedEffect(pos, face, browseActive) {
+        if (!browseActive) return@LaunchedEffect
+        val cd = curCard() ?: return@LaunchedEffect
+        val currentFace = cd.second.getOrNull(face.coerceAtMost(cd.second.lastIndex))
+        val audio = currentFace?.firstOrNull { it.type == "AUDIO" }
+        if (audio != null) {
+            Player.stop()
+            Player.play(ctx, audio.data) { }
+        }
+        browseRemaining = browseDelay
+        var remaining = browseDelay
+        while (remaining > 0) {
+            delay(1000L)
+            remaining -= 1
+            browseRemaining = remaining
+        }
+        if (face < cd.second.lastIndex) {
+            face = cd.second.lastIndex
+        } else {
+            navNext()
+        }
+    }
+
+    LaunchedEffect(browseActive) {
+        if (!browseActive) Player.stop()
+    }
+
     fun springBack() {
         scope.launch {
             coroutineScope {
@@ -490,7 +488,6 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     fun release() {
         if (busy) return
         if (speedActive || browseActive) {
-            // In speed/browse mode, only up/down swipes rate. Left/right do nothing.
             val dx = offX.value
             val dy = offY.value
             if (abs(dy) > abs(dx) && abs(dy) > thr) {
@@ -639,7 +636,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                             }) { Text("Redo wrong ones (${missed.size})") }
                             Spacer(Modifier.height(8.dp))
                         }
-                        Button(onClick = { stopSpeedAndBrowse(); speedActive = false }) { Text("Finish") }
+                        Button(onClick = { stopSpeedAndBrowse() }) { Text("Finish") }
                     } else {
                         Text("Set $setNo complete! 🎉", color = Color.White, fontSize = 24.sp)
                         Spacer(Modifier.height(8.dp))
