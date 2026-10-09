@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -29,6 +30,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -171,6 +173,23 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val iconAlpha = remember { Animatable(0f) }
     val iconScale = remember { Animatable(0.5f) }
 
+    var showSpeedDialog by remember { mutableStateOf(false) }
+    var showSkipDialog by remember { mutableStateOf(false) }
+    var showBrowseDialog by remember { mutableStateOf(false) }
+    var skipText by remember { mutableStateOf("") }
+
+    var speedActive by remember { mutableStateOf(false) }
+    var speedMode by remember { mutableStateOf(0) }
+    var speedSeconds by remember { mutableStateOf(10) }
+    var speedRemaining by remember { mutableStateOf(0) }
+    var speedCorrect by remember { mutableStateOf(0) }
+    var speedWrong by remember { mutableStateOf(0) }
+
+    var browseActive by remember { mutableStateOf(false) }
+    var browseMode by remember { mutableStateOf(0) }
+    var browseDelay by remember { mutableStateOf(6) }
+    var browseRemaining by remember { mutableStateOf(0) }
+
     LaunchedEffect(iconTrigger) {
         if (iconTrigger == 0) return@LaunchedEffect
         iconScale.snapTo(0.5f)
@@ -258,6 +277,50 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val finishedNow = order.let { it != null && it.isNotEmpty() && answered.size >= it.size }
     LaunchedEffect(finishedNow) { if (finishedNow) Resume.clear(ctx, deckId, mode) }
 
+    // Speed game timer — resets when a new card appears
+    LaunchedEffect(pos, speedActive) {
+        if (!speedActive) return@LaunchedEffect
+        speedRemaining = speedSeconds
+        var remaining = speedSeconds
+        while (remaining > 0) {
+            delay(1000L)
+            remaining -= 1
+            speedRemaining = remaining
+        }
+        val cd = curCard() ?: return@LaunchedEffect
+        if (face < cd.second.lastIndex) {
+            face = cd.second.lastIndex
+        }
+    }
+
+    // Browse mode timer — resets when pos OR face changes
+    LaunchedEffect(pos, face, browseActive) {
+        if (!browseActive) return@LaunchedEffect
+        val cd = curCard() ?: return@LaunchedEffect
+        val currentFace = cd.second.getOrNull(face.coerceAtMost(cd.second.lastIndex))
+        val audio = currentFace?.firstOrNull { it.type == "AUDIO" }
+        if (audio != null) {
+            Player.stop()
+            Player.play(ctx, audio.data) { }
+        }
+        browseRemaining = browseDelay
+        var remaining = browseDelay
+        while (remaining > 0) {
+            delay(1000L)
+            remaining -= 1
+            browseRemaining = remaining
+        }
+        if (face < cd.second.lastIndex) {
+            face = cd.second.lastIndex
+        } else {
+            navNext()
+        }
+    }
+
+    LaunchedEffect(browseActive) {
+        if (!browseActive) Player.stop()
+    }
+
     fun advance() {
         if (busy) return
         val cd = curCard() ?: return
@@ -305,6 +368,9 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         history = (history + Undo(1, pos, c, job, again, missed, correctCnt, wrongCnt, streak)).takeLast(200)
         cache[c.id] = Pair(n, cd.second)
         if (wrong) { missed = missed + c.id; wrongCnt += 1; streak = 0 } else { correctCnt += 1; streak += 1 }
+        if (speedActive) {
+            if (wrong) speedWrong += 1 else speedCorrect += 1
+        }
         val newOrder = if (again) o + c.id else o
         val newAns = answered + pos
         order = newOrder
@@ -423,6 +489,20 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
 
     fun release() {
         if (busy) return
+        if (speedActive || browseActive) {
+            // In speed/browse mode, only up/down swipes rate. Left/right do nothing.
+            val dx = offX.value
+            val dy = offY.value
+            if (abs(dy) > abs(dx) && abs(dy) > thr) {
+                val cd = curCard()
+                val isLast = cd == null || face >= cd.second.lastIndex
+                if (!isLast) { springBack(); advance() }
+                else if (dy < 0) rateAndFly(0, 3, 2) else rateAndFly(1, 0, 3)
+            } else {
+                springBack()
+            }
+            return
+        }
         val dx = offX.value
         val dy = offY.value
         val cd = curCard()
@@ -434,10 +514,8 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             else if (dy < 0) rateAndFly(0, 3, 2) else rateAndFly(1, 0, 3)
         } else if (!vertical && abs(dx) > thr) {
             if (dx > 0) {
-                // swipe RIGHT -> previous card, no rating
                 navAnim(false)
             } else {
-                // swipe LEFT -> next card with one green tick (Good rating)
                 if (AppSettings.ratingStyle == 0) {
                     if (!isLast) { springBack(); advance() } else rateAndFly(2, 2, 1)
                 } else {
@@ -459,6 +537,48 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         toast(ctx, "Cards shuffled")
     }
 
+    fun startSpeedGame() {
+        val o = order ?: return
+        val newOrder = when (speedMode) {
+            0 -> o.shuffled()
+            1 -> o
+            else -> o
+        }
+        order = newOrder
+        if (speedMode != 2) { pos = 0 } else { pos = pos.coerceIn(0, max(0, newOrder.lastIndex)) }
+        answered = emptySet()
+        face = 0
+        speedCorrect = 0
+        speedWrong = 0
+        speedRemaining = speedSeconds
+        speedActive = true
+        browseActive = false
+        persist()
+    }
+
+    fun startBrowseMode() {
+        val o = order ?: return
+        val newOrder = when (browseMode) {
+            0 -> o.shuffled()
+            1 -> o
+            else -> o
+        }
+        order = newOrder
+        if (browseMode != 2) { pos = 0 } else { pos = pos.coerceIn(0, max(0, newOrder.lastIndex)) }
+        answered = emptySet()
+        face = 0
+        browseRemaining = browseDelay
+        browseActive = true
+        speedActive = false
+        persist()
+    }
+
+    fun stopSpeedAndBrowse() {
+        speedActive = false
+        browseActive = false
+        Player.stop()
+    }
+
     fun toggleFlag(bookmark: Boolean) {
         val cd = curCard() ?: return
         val c = cd.first
@@ -474,7 +594,10 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = back) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = grayText) }
+                IconButton(onClick = {
+                    stopSpeedAndBrowse()
+                    back()
+                }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = grayText) }
                 Text(titleText, color = grayText, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
                 IconButton(onClick = { showSettings = true }) { Text("⚙", color = grayText, fontSize = 24.sp) }
             }
@@ -494,13 +617,38 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     OutlinedButton(onClick = back) { Text("Back") }
                 }
                 finishedNow -> Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Set $setNo complete! 🎉", color = Color.White, fontSize = 24.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("You studied $setTotal cards.  Missed at first: ${missed.size}", color = grayText)
-                    Spacer(Modifier.height(20.dp))
-                    Button(onClick = { setNo += 1 }) { Text("Next set") }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = back) { Text("Finish") }
+                    if (speedActive) {
+                        Text("Speed game complete! 🎉", color = Color.White, fontSize = 24.sp)
+                        Spacer(Modifier.height(12.dp))
+                        Text("Correct: $speedCorrect", color = tickGreen, fontSize = 22.sp)
+                        Text("Wrong: $speedWrong", color = crossRed, fontSize = 22.sp)
+                        Spacer(Modifier.height(20.dp))
+                        if (missed.isNotEmpty()) {
+                            Button(onClick = {
+                                val missedIds = missed.toList()
+                                order = missedIds
+                                answered = emptySet()
+                                pos = 0
+                                face = 0
+                                setTotal = missedIds.size
+                                missed = emptySet()
+                                speedCorrect = 0
+                                speedWrong = 0
+                                speedRemaining = speedSeconds
+                                persist()
+                            }) { Text("Redo wrong ones (${missed.size})") }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        Button(onClick = { stopSpeedAndBrowse(); speedActive = false }) { Text("Finish") }
+                    } else {
+                        Text("Set $setNo complete! 🎉", color = Color.White, fontSize = 24.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("You studied $setTotal cards.  Missed at first: ${missed.size}", color = grayText)
+                        Spacer(Modifier.height(20.dp))
+                        Button(onClick = { setNo += 1 }) { Text("Next set") }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = back) { Text("Finish") }
+                    }
                 }
                 else -> {
                     val cd = curCard()
@@ -604,20 +752,38 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                             }
                         }
                     }
+
+                    if (speedActive) {
+                        LinearProgressIndicator(
+                            progress = { speedRemaining.toFloat() / max(speedSeconds, 1).toFloat() },
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = tickGreen, trackColor = Color(0xFF333333)
+                        )
+                        Text("${speedRemaining}s", color = grayText, fontSize = 12.sp)
+                    }
+                    if (browseActive) {
+                        LinearProgressIndicator(
+                            progress = { browseRemaining.toFloat() / max(browseDelay, 1).toFloat() },
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = Color(0xFF64B5F6), trackColor = Color(0xFF333333)
+                        )
+                        Text("${browseRemaining}s", color = grayText, fontSize = 12.sp)
+                    }
+
                     val shown = min(answered.count { it < setTotal } + 1, max(setTotal, 1))
                     val pct = if (correctCnt + wrongCnt == 0) 100 else correctCnt * 100 / (correctCnt + wrongCnt)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.clickable { toggleFlag(true) }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("🔖", fontSize = 22.sp, modifier = Modifier.alpha(if ((cd?.first?.bookmark ?: 0) == 1) 1f else 0.4f))
                             Text("$shown of $setTotal", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
+                        Spacer(Modifier.weight(1f))
                         Column(Modifier.clickable { showCardMenu = true }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(width = 34.dp, height = 24.dp).border(2.dp, grayText, RoundedCornerShape(5.dp)))
-                            Spacer(Modifier.height(3.dp))
-                            Text("Correct: $pct%", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
-                        Column(Modifier.clickable { toggleFlag(false) }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if ((cd?.first?.fav ?: 0) == 1) "★" else "☆", color = grayText, fontSize = 24.sp)
+                        Spacer(Modifier.weight(1f))
+                        Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.End) {
+                            Text("Correct: $pct%", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                             Text("Streak: $streak", color = Color(0xFFD0D0D6), fontSize = 14.sp)
                         }
                     }
@@ -669,7 +835,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         title = { Text("Card options") },
         text = {
             Column {
-                TextButton(onClick = { showCardMenu = false; toast(ctx, "Speed game — coming in the next update") }) {
+                TextButton(onClick = { showCardMenu = false; showSpeedDialog = true }) {
                     Text("⏱  Speed game", fontSize = 18.sp)
                 }
                 Spacer(Modifier.height(4.dp))
@@ -677,16 +843,106 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     Text("🔀  Shuffle cards", fontSize = 18.sp)
                 }
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = { showCardMenu = false; toast(ctx, "Skip to card — coming soon") }) {
+                TextButton(onClick = { showCardMenu = false; skipText = ""; showSkipDialog = true }) {
                     Text("↪  Skip to card", fontSize = 18.sp)
                 }
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = { showCardMenu = false; toast(ctx, "Browse mode — coming soon") }) {
+                TextButton(onClick = { showCardMenu = false; showBrowseDialog = true }) {
                     Text("🎧  Browse mode", fontSize = 18.sp)
                 }
             }
         },
         confirmButton = { TextButton(onClick = { showCardMenu = false }) { Text("Cancel") } }
+    )
+
+    if (showSpeedDialog) AlertDialog(
+        onDismissRequest = { showSpeedDialog = false },
+        title = { Text("Speed game") },
+        text = {
+            Column {
+                Text("Order:", color = grayText, fontSize = 13.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Random", "From start", "Serial").forEachIndexed { i, l ->
+                        FilterChip(selected = speedMode == i, onClick = { speedMode = i }, label = { Text(l) })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Seconds per card:", color = grayText, fontSize = 13.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(5, 10, 15, 20, 30).forEach { s ->
+                        FilterChip(selected = speedSeconds == s, onClick = { speedSeconds = s }, label = { Text("${s}s") })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { showSpeedDialog = false; startSpeedGame() }) { Text("Start") }
+        },
+        dismissButton = { TextButton(onClick = { showSpeedDialog = false }) { Text("Cancel") } }
+    )
+
+    if (showSkipDialog) AlertDialog(
+        onDismissRequest = { showSkipDialog = false; skipText = "" },
+        title = { Text("Skip to card") },
+        text = {
+            Column {
+                Text("Enter a card number (1 to $setTotal)", color = grayText, fontSize = 13.sp)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = skipText,
+                    onValueChange = { v -> skipText = v.filter { it.isDigit() }.take(6) },
+                    singleLine = true,
+                    label = { Text("Card number") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val n = skipText.toIntOrNull()
+                val ord = order
+                if (n != null && ord != null && n in 1..ord.size) {
+                    pos = n - 1
+                    face = 0
+                    persist()
+                }
+                showSkipDialog = false
+                skipText = ""
+            }) { Text("Go") }
+        },
+        dismissButton = { TextButton(onClick = { showSkipDialog = false; skipText = "" }) { Text("Cancel") } }
+    )
+
+    if (showBrowseDialog) AlertDialog(
+        onDismissRequest = { showBrowseDialog = false },
+        title = { Text("Browse mode") },
+        text = {
+            Column {
+                Text("Order:", color = grayText, fontSize = 13.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Random", "From start", "Serial").forEachIndexed { i, l ->
+                        FilterChip(selected = browseMode == i, onClick = { browseMode = i }, label = { Text(l) })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Seconds per phase (question / answer):", color = grayText, fontSize = 13.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(3, 5, 8, 12, 20).forEach { s ->
+                        FilterChip(selected = browseDelay == s, onClick = { browseDelay = s }, label = { Text("${s}s") })
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Cards will auto-reveal the answer and auto-advance. Any audio on each face will play automatically.", color = grayText, fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { showBrowseDialog = false; startBrowseMode() }) { Text("Start") }
+        },
+        dismissButton = { TextButton(onClick = { showBrowseDialog = false }) { Text("Cancel") } }
     )
 
     resumeAsk?.let { sv ->
