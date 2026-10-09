@@ -126,6 +126,11 @@ private val swipeEase = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 private val flipInEase = CubicBezierEasing(0.34f, 1.2f, 0.64f, 1f)
 private val grayText = Color(0xFF8A8A92)
 
+// How far you need to drag up/down before the card is "answered"
+private const val SWIPE_THRESHOLD_FRACTION = 0.22f
+// How far you need to flick sideways to go to next/prev
+private const val FLICK_THRESHOLD_FRACTION = 0.15f
+
 @Composable
 fun ReviewScreen(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit, back: () -> Unit) {
     MaterialTheme(colorScheme = darkPalette(0)) {
@@ -142,7 +147,8 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val scope = rememberCoroutineScope()
     val screenW = with(dens) { config.screenWidthDp.dp.toPx() }
     val screenH = with(dens) { config.screenHeightDp.dp.toPx() }
-    val thr = with(dens) { 56.dp.toPx() }
+    val upThr = screenH * SWIPE_THRESHOLD_FRACTION
+    val sideThr = screenW * FLICK_THRESHOLD_FRACTION
     val anim = remember { animationsOn(ctx) }
 
     var order by remember { mutableStateOf<List<Long>?>(null) }
@@ -167,6 +173,11 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val fade = remember { Animatable(1f) }
     val offX = remember { Animatable(0f) }
     val offY = remember { Animatable(0f) }
+
+    // thumbs feedback: 0 = hidden, 1 = showing up (correct), -1 = showing down (wrong)
+    var thumb by remember { mutableStateOf(0) }
+    val thumbAlpha = remember { Animatable(0f) }
+    val thumbScale = remember { Animatable(0.6f) }
 
     fun curCard(): Pair<Flashcard, List<List<Item>>>? {
         val o = order ?: return null
@@ -229,7 +240,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     val curIdNow = order?.getOrNull(pos)
     LaunchedEffect(curIdNow, gone.size) {
         val o = order
-        if (o != null && curIdNow != null && curIdNow in gone) {   // card was deleted meanwhile: skip it
+        if (o != null && curIdNow != null && curIdNow in gone) {
             answered = answered + pos
             val np = nextUnanswered(o, answered, pos)
             if (np >= 0) { pos = np; face = 0 }
@@ -239,6 +250,24 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
 
     val finishedNow = order.let { it != null && it.isNotEmpty() && answered.size >= it.size }
     LaunchedEffect(finishedNow) { if (finishedNow) Resume.clear(ctx, deckId, mode) }
+
+    // ----- the thumbs feedback animation -----
+
+    suspend fun showThumb(up: Boolean) {
+        thumb = if (up) 1 else -1
+        thumbScale.snapTo(0.6f)
+        thumbAlpha.snapTo(0f)
+        coroutineScope {
+            launch { thumbScale.animateTo(1f, tween(if (anim) 220 else 0, easing = flipInEase)) }
+            launch { thumbAlpha.animateTo(1f, tween(if (anim) 150 else 0)) }
+        }
+        delay(500)
+        coroutineScope {
+            launch { thumbAlpha.animateTo(0f, tween(if (anim) 180 else 0)) }
+            launch { thumbScale.animateTo(1.15f, tween(if (anim) 180 else 0)) }
+        }
+        thumb = 0
+    }
 
     // ----- actions -----
 
@@ -278,7 +307,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         val n = if (onSchedule) {
             Scheduler.next(c, rating, now, if (AppSettings.streakBonus) AppSettings.streakN else 0, AppSettings.streakMult.toDouble())
         } else {
-            Scheduler.statsOnly(c, rating, now)    // studied early (e.g. a Bookmarked session): only count right/wrong
+            Scheduler.statsOnly(c, rating, now)
         }
         val job = scope.async {
             dao.updateCard(n)
@@ -341,43 +370,48 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         }
     }
 
-    fun answerAnim(rating: Int) {
+    /** Vertical swipe: card flies off vertically, thumbs in the middle, next card appears. */
+    fun verticalAnswer(up: Boolean) {
         if (busy) return
         busy = true
         scope.launch {
-            val dur = if (anim) 300 else 0
-            val ty = (if (rating == 0) 1f else -1f) * screenH
-            coroutineScope {
-                launch { offY.animateTo(ty, tween(dur, easing = swipeEase)) }
-                launch { fade.animateTo(0f, tween(dur)) }
-            }
-            answer(rating)
-            offX.snapTo(0f); offY.snapTo(0f)
-            delay(40)
-            fade.animateTo(1f, tween(if (anim) 170 else 0))
+            val dur = if (anim) 260 else 0
+            val ty = (if (up) -1f else 1f) * screenH * 1.3f
+            launch { offY.animateTo(ty, tween(dur, easing = swipeEase)) }
+            launch { fade.animateTo(0f, tween(dur)) }
+            // thumbs appear the moment the card leaves
+            launch { showThumb(up) }
+            delay(dur)
+            answer(if (up) 2 else 0)
+            offX.snapTo(0f)
+            offY.snapTo(0f)
+            fade.snapTo(0f)
+            delay(20)
+            fade.animateTo(1f, tween(if (anim) 200 else 0))
             busy = false
         }
     }
 
-    fun navAnim(forward: Boolean) {
+    /** Horizontal flick: card snaps left/right and next/prev card slides in. */
+    fun horizontalNav(forward: Boolean) {
         if (busy) return
         val o = order ?: return
         val np = nextUnanswered(o, answered, pos)
         if ((forward && (np < 0 || np == pos)) || (!forward && history.isEmpty())) { springBack(); return }
         busy = true
         scope.launch {
-            val dur = if (anim) 280 else 0
-            val tx = (if (forward) 1f else -1f) * screenW
-            coroutineScope {
-                launch { offX.animateTo(tx, tween(dur, easing = swipeEase)) }
-                launch { fade.animateTo(0f, tween(dur)) }
-            }
+            val dur = if (anim) 220 else 0
+            val tx = (if (forward) 1f else -1f) * screenW * 1.2f
+            launch { offX.animateTo(tx, tween(dur, easing = swipeEase)) }
+            launch { fade.animateTo(0f, tween(dur)) }
+            delay(dur)
             if (forward) navNext() else goBack()
             offY.snapTo(0f)
-            offX.snapTo(-tx * 0.5f)
-            delay(40)
+            offX.snapTo(-tx * 0.7f)
+            fade.snapTo(0f)
+            delay(20)
             coroutineScope {
-                launch { offX.animateTo(0f, tween(if (anim) 260 else 0, easing = swipeEase)) }
+                launch { offX.animateTo(0f, tween(if (anim) 240 else 0, easing = swipeEase)) }
                 launch { fade.animateTo(1f, tween(if (anim) 200 else 0)) }
             }
             busy = false
@@ -390,11 +424,20 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
         val dy = offY.value
         val cd = curCard()
         val last = cd == null || face >= cd.second.lastIndex
-        if (AppSettings.ratingStyle == 0 && abs(dy) >= abs(dx) && abs(dy) > thr) {
-            if (!last) { springBack(); advance() }
-            else answerAnim(if (dy < 0) 2 else 0)
-        } else if (abs(dx) > thr && abs(dx) > abs(dy)) {
-            navAnim(dx > 0)
+
+        // which direction did the user drag most?
+        val vertical = abs(dy) > abs(dx)
+
+        if (vertical && abs(dy) > upThr) {
+            if (!last) {
+                // card still has faces to show — just turn it, no thumbs
+                springBack()
+                advance()
+            } else {
+                verticalAnswer(dy < 0)
+            }
+        } else if (!vertical && abs(dx) > sideThr) {
+            horizontalNav(dx > 0)
         } else {
             springBack()
         }
@@ -465,12 +508,14 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                             .graphicsLayer {
                                 translationX = offX.value
                                 translationY = offY.value
-                                rotationZ = offX.value / 60f
                                 rotationY = rot.value
                                 alpha = fade.value
                                 cameraDistance = 12f * density
-                                scaleX = 0.97f + 0.03f * fade.value
-                                scaleY = 0.97f + 0.03f * fade.value
+                                // subtle scale dip while dragging, so it feels alive
+                                val drag = (abs(offX.value) + abs(offY.value)) / (screenW + screenH)
+                                val sc = 1f - (drag * 0.04f).coerceIn(0f, 0.04f)
+                                scaleX = sc
+                                scaleY = sc
                             }
                             .clip(cardShape)
                             .background(Color.Black)
@@ -496,20 +541,22 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 }
                             }
                         }
-                        // "Correct" / "Incorrect" labels fade in while you drag
-                        Text(
-                            "Correct", color = Color(0xFF66BB6A), fontSize = 30.sp,
-                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 36.dp).graphicsLayer {
-                                alpha = if (swipeRating) (-offY.value / thr).coerceIn(0f, 1f) else 0f
-                            }
-                        )
-                        Text(
-                            "Incorrect", color = Color(0xFFEF5350), fontSize = 30.sp,
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp).graphicsLayer {
-                                alpha = if (swipeRating) (offY.value / thr).coerceIn(0f, 1f) else 0f
-                            }
-                        )
-                        // gestures: tap = turn the card, drag = swipe
+                        // Corner labels while dragging vertically (kept for feedback but very subtle)
+                        if (swipeRating) {
+                            Text(
+                                "Correct", color = Color(0xFF66BB6A), fontSize = 22.sp,
+                                modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp).graphicsLayer {
+                                    alpha = if (offY.value < 0) (-offY.value / upThr).coerceIn(0f, 0.5f) else 0f
+                                }
+                            )
+                            Text(
+                                "Incorrect", color = Color(0xFFEF5350), fontSize = 22.sp,
+                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp).graphicsLayer {
+                                    alpha = if (offY.value > 0) (offY.value / upThr).coerceIn(0f, 0.5f) else 0f
+                                }
+                            )
+                        }
+                        // gestures: tap = turn the card, drag = swipe (axis-locked after first move)
                         Box(
                             Modifier.matchParentSize()
                                 .pointerInput(pos, face) {
@@ -521,13 +568,25 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                                 .pointerInput(pos, face) {
                                     var dx = 0f
                                     var dy = 0f
+                                    var locked = 0    // 0 = undecided, 1 = horizontal, 2 = vertical
                                     detectDragGestures(
-                                        onDragStart = { dx = offX.value; dy = offY.value },
+                                        onDragStart = { dx = 0f; dy = 0f; locked = 0; offX.snapTo(0f); offY.snapTo(0f) },
                                         onDrag = { change, amt ->
                                             if (!busy) {
                                                 change.consume()
-                                                dx += amt.x; dy += amt.y
-                                                scope.launch { offX.snapTo(dx); offY.snapTo(dy) }
+                                                // decide the axis once the user has moved enough
+                                                if (locked == 0) {
+                                                    if (abs(amt.x) > 2f || abs(amt.y) > 2f) {
+                                                        locked = if (abs(amt.x) > abs(amt.y)) 1 else 2
+                                                    }
+                                                }
+                                                if (locked == 1) {
+                                                    dx += amt.x
+                                                    scope.launch { offX.snapTo(dx) }
+                                                } else if (locked == 2) {
+                                                    dy += amt.y
+                                                    scope.launch { offY.snapTo(dy) }
+                                                }
                                             }
                                         },
                                         onDragEnd = { release() },
@@ -540,11 +599,20 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     if (AppSettings.ratingStyle == 1 && last) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Again", "Hard", "Good", "Easy").forEachIndexed { i, l ->
-                                Button(onClick = { answerAnim(i) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
+                                Button(onClick = {
+                                    busy = true
+                                    scope.launch {
+                                        val up = i >= 2
+                                        launch { showThumb(up) }
+                                        answer(i)
+                                        delay(300)
+                                        busy = false
+                                    }
+                                }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(2.dp)) { Text(l) }
                             }
                         }
                     }
-                    // bottom bar, like the reference app
+                    // bottom bar
                     val shown = min(answered.count { it < setTotal } + 1, max(setTotal, 1))
                     val pct = if (correctCnt + wrongCnt == 0) 100 else correctCnt * 100 / (correctCnt + wrongCnt)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -566,6 +634,22 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             }
         }
 
+        // ---- the thumbs feedback (appears in the middle of the screen) ----
+        if (thumb != 0) {
+            Box(
+                Modifier.align(Alignment.Center).graphicsLayer {
+                    alpha = thumbAlpha.value
+                    scaleX = thumbScale.value
+                    scaleY = thumbScale.value
+                }
+            ) {
+                Text(
+                    text = if (thumb == 1) "👍" else "👎",
+                    fontSize = 96.sp
+                )
+            }
+        }
+
         // one-time hint
         if (!AppSettings.hintSeen && o != null && o.isNotEmpty() && !finishedNow) {
             Box(Modifier.fillMaxSize().background(Color(0xE8000000)).clickable { }, contentAlignment = Alignment.Center) {
@@ -573,7 +657,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                     Text("How to study", color = Color.White, fontSize = 26.sp)
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Tap the card to turn it.\n\n⬆  Swipe UP: I knew it\n⬇  Swipe DOWN: I missed it\n➡  Swipe RIGHT: next card\n⬅  Swipe LEFT: go back / undo\n\n" +
+                        "Tap the card to turn it.\n\n⬆  Swipe UP: I knew it  👍\n⬇  Swipe DOWN: I missed it  👎\n➡  Swipe RIGHT: next card\n⬅  Swipe LEFT: go back / undo\n\n" +
                             "On a card with several faces, swipe up or down only turns it until you reach the last face.",
                         color = Color(0xFFD8D8DE), fontSize = 17.sp, textAlign = TextAlign.Center
                     )
