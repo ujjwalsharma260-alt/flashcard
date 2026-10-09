@@ -25,11 +25,17 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.graphics.Canvas as GraphicsCanvas
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -54,7 +60,6 @@ class InkDoc(val w: Float, val h: Float, val strokes: List<InkStroke>)
 
 private const val ERASER_R = 14f
 
-/** Compact text format stored in Item.data:  i1,W,H|color,width,x,y,p,x,y,p...|...   (x,y,width x10, pressure x100) */
 object Ink {
     const val W = 1000f
     const val H = 750f
@@ -110,7 +115,6 @@ fun colorOf(idx: Int, def: Color): Color = when (idx) {
 
 private fun widthOf(s: InkStroke, p: Float): Float = s.width * (0.55f + 0.85f * p.coerceIn(0f, 1f))
 
-/** Quadratic-Bezier smoothing through the midpoints of the captured points. */
 private fun smooth(pts: List<InkPt>): List<InkPt> {
     val n = pts.size
     if (n <= 2) return pts
@@ -163,6 +167,24 @@ private fun DrawScope.drawInk(strokes: List<InkStroke>, scale: Float, ox: Float,
     for (s in strokes) drawOne(s, scale, ox, oy, colorOf(s.color, def))
 }
 
+/** Renders all strokes into a static bitmap ONCE. This is what makes flips smooth. */
+private fun renderInkBitmap(doc: InkDoc, wPx: Int, hPx: Int, fg: Color, density: Density): ImageBitmap {
+    val bmp = ImageBitmap(wPx, hPx)
+    val canvas = GraphicsCanvas(bmp)
+    val sc = min(wPx / doc.w, hPx / doc.h)
+    val ox = (wPx - doc.w * sc) / 2f
+    val oy = (hPx - doc.h * sc) / 2f
+    CanvasDrawScope().draw(
+        density = density,
+        layoutDirection = LayoutDirection.Ltr,
+        canvas = canvas,
+        size = Size(wPx.toFloat(), hPx.toFloat())
+    ) {
+        drawInk(doc.strokes, sc, ox, oy, fg)
+    }
+    return bmp
+}
+
 // ---------- eraser ----------
 
 private fun distSeg(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
@@ -191,7 +213,6 @@ private fun densify(pts: List<InkPt>, step: Float): List<InkPt> {
     return out
 }
 
-/** Partial eraser: removes the part of any stroke within r of (cx, cy), splitting strokes where needed. */
 private fun eraseAt(strokes: List<InkStroke>, cx: Float, cy: Float, r: Float): List<InkStroke> {
     var changed = false
     val out = ArrayList<InkStroke>(strokes.size + 2)
@@ -221,7 +242,10 @@ private fun eraseAt(strokes: List<InkStroke>, cx: Float, cy: Float, r: Float): L
 
 // ---------- display ----------
 
-/** Read-only handwriting. Always scaled to fit inside its box (never drawn outside it) and centred. */
+/**
+ * Read-only handwriting. The strokes are rendered ONCE into a bitmap and reused for every frame,
+ * which is what makes the study screen card flip feel smooth (no per-frame path smoothing).
+ */
 @Composable
 fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = false, fit: Boolean = false, color: Color? = null) {
     val doc = remember(data) { Ink.parse(data) }
@@ -235,11 +259,15 @@ fun InkView(data: String, modifier: Modifier = Modifier, placeholder: Boolean = 
         }
     } else {
         val m = if (fit) modifier else modifier.aspectRatio(doc.w / doc.h)
-        Canvas(m.clipToBounds()) {
-            val sc = min(size.width / doc.w, size.height / doc.h)
-            val ox = (size.width - doc.w * sc) / 2f
-            val oy = (size.height - doc.h * sc) / 2f
-            drawInk(doc.strokes, sc, ox, oy, fg)
+        var sizeState by remember { mutableStateOf(IntSize.Zero) }
+        val density = LocalDensity.current
+        val bitmap = remember(doc, fg, sizeState, density) {
+            if (sizeState.width > 0 && sizeState.height > 0) {
+                renderInkBitmap(doc, sizeState.width, sizeState.height, fg, density)
+            } else null
+        }
+        Canvas(m.clipToBounds().onSizeChanged { sizeState = it }) {
+            bitmap?.let { drawImage(it) }
         }
     }
 }
@@ -280,7 +308,6 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
     val pageBg = MaterialTheme.colorScheme.surface
     val outline = MaterialTheme.colorScheme.outline
 
-    // A new page takes the shape of the writing area, so it uses the whole screen.
     fun pageH(w: Int, h: Int): Float =
         if (isNew && w > 0 && h > 0) (doc0.w * h / w).coerceIn(500f, 2600f) else doc0.h
 
@@ -336,7 +363,6 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
         }
         Spacer(Modifier.height(4.dp))
         Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { cvs = it }) {
-            // Layer 1: the page and finished strokes. It has its own layer, so it is NOT redrawn while you write.
             Canvas(Modifier.fillMaxSize().graphicsLayer { }) {
                 val ph = pageH(size.width.toInt(), size.height.toInt())
                 val sc = min(size.width / doc0.w, size.height / ph)
@@ -346,14 +372,12 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
                 drawRect(outline, Offset(ox, oy), Size(doc0.w * sc, ph * sc), style = Stroke(2f))
                 drawInk(strokes, sc, ox, oy, fg)
             }
-            // Layer 2: the stroke you are writing right now + touch handling.
             Canvas(
                 Modifier.fillMaxSize().pointerInput(tool, colorIdx, widthIdx, penOnly) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val stylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
                         val nowMs = System.currentTimeMillis()
-                        // palm rejection: ignore fingers while "pen only" is on, or right after the stylus was used
                         if (!stylus && (penOnly || nowMs - lastStylus < 900L)) return@awaitEachGesture
                         if (stylus) lastStylus = nowMs
 
@@ -400,7 +424,7 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
                                 } else {
                                     val prev = livePts[livePts.size - 1]
                                     val dist = hypot(pg.x - prev.x, pg.y - prev.y)
-                                    val a = 0.35f + min(dist / 12f, 0.55f)   // low-pass filter: removes jitter, little lag when moving fast
+                                    val a = 0.35f + min(dist / 12f, 0.55f)
                                     val nx = prev.x + (pg.x - prev.x) * a
                                     val ny = prev.y + (pg.y - prev.y) * a
                                     val np = prev.p * 0.7f + p * 0.3f
@@ -413,7 +437,7 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
                             do {
                                 val ev = awaitPointerEvent()
                                 val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                for (h in ch.historical) addRaw(h.position, ch.pressure)   // no skipped samples
+                                for (h in ch.historical) addRaw(h.position, ch.pressure)
                                 addRaw(ch.position, ch.pressure)
                                 lastRaw = ch.position
                                 tick++
