@@ -17,10 +17,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.flowOf
@@ -64,6 +67,8 @@ fun HomeScreen(
     val flow = remember { dao.decks(System.currentTimeMillis()) }
     val decks by flow.collectAsState(emptyList())
     var q by rememberSaveable { mutableStateOf("") }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    val searchFocus = remember { FocusRequester() }
     val homeList = rememberLazyListState()
     val hitFlow = remember(q) {
         if (q.isBlank()) flowOf(emptyList<CardRow>()) else dao.browse(CardSearch.build(q.trim(), 0L, System.currentTimeMillis()))
@@ -97,36 +102,63 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(searchOpen) {
+        if (searchOpen) {
+            try { searchFocus.requestFocus() } catch (e: Exception) { }
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("My Decks") }, actions = {
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; openSettings() })
-                        DropdownMenuItem(text = { Text("Help") }, onClick = { menu = false; openHelp() })
-                        DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
-                        DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
-                        DropdownMenuItem(text = { Text("Export backup (Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
-                        DropdownMenuItem(text = { Text("Import backup") }, onClick = { menu = false; importL.launch(arrayOf("*/*")) })
+            if (searchOpen) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = q,
+                            onValueChange = { q = it },
+                            placeholder = { Text("Search decks and cards") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus)
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { searchOpen = false; q = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close search")
+                        }
                     }
-                }
-            })
+                )
+            } else {
+                TopAppBar(title = { Text("My Decks") }, actions = {
+                    IconButton(onClick = { searchOpen = true }) {
+                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; openSettings() })
+                            DropdownMenuItem(text = { Text("Help") }, onClick = { menu = false; openHelp() })
+                            DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
+                            DropdownMenuItem(text = { Text("Copy TSV template") }, onClick = { menu = false; copyToClipboard(ctx, Tsv.TEMPLATE); toast(ctx, "Template copied") })
+                            DropdownMenuItem(text = { Text("Export backup (Drive/OneDrive)") }, onClick = { menu = false; exportL.launch("flashcards-backup.zip") })
+                            DropdownMenuItem(text = { Text("Import backup") }, onClick = { menu = false; importL.launch(arrayOf("*/*")) })
+                        }
+                    }
+                })
+            }
         },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { name = ""; dialog = true }) { Text("+ Create Deck") } }
+        floatingActionButton = {
+            if (!searchOpen) ExtendedFloatingActionButton(onClick = { name = ""; dialog = true }) { Text("+ Create Deck") }
+        }
     ) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
-            OutlinedTextField(q, { q = it }, label = { Text("Search: words, tag:x, deck:x, has:image, favorite…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     val t = clipboardText(ctx)
                     if (t.isNullOrBlank()) toast(ctx, "Clipboard is empty. Copy the TSV from your AI first.") else importText(0L, t)
                 }) { Text("Import from Clipboard") }
-                OutlinedButton(onClick = { browse("favorite") }) { Text("⭐ Favorites") }
-                OutlinedButton(onClick = { browse("added:7d") }) { Text("🆕 Recently added") }
                 OutlinedButton(onClick = { browse("") }) { Text("All cards") }
             }
-            if (shown.isEmpty() && hits.isEmpty()) Text("No decks yet. Tap + Create Deck.", Modifier.padding(24.dp))
+            if (shown.isEmpty() && hits.isEmpty()) Text(if (q.isBlank()) "No decks yet. Tap + Create Deck." else "Nothing matches \"$q\".", Modifier.padding(24.dp))
             LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(shown, key = { "d${it.id}" }) { d ->
                     // tap = start studying at once; long-press or the three dots = browse / rename / delete
