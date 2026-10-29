@@ -161,7 +161,6 @@ fun HomeScreen(
             if (shown.isEmpty() && hits.isEmpty()) Text(if (q.isBlank()) "No decks yet. Tap + Create Deck." else "Nothing matches \"$q\".", Modifier.padding(24.dp))
             LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(shown, key = { "d${it.id}" }) { d ->
-                    // tap = start studying at once; long-press or the three dots = browse / rename / delete
                     Card(
                         colors = cardC(),
                         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { study(d.id) }, onLongClick = { tileMenu = d.id })
@@ -286,6 +285,13 @@ fun DeckScreen(
             toast(ctx, if (ok) "TSV exported (text and formulas only; use backup for images and audio)" else "Export failed")
         }
     }
+    // NEW: Launcher for single deck backup
+    val exportDeckL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) scope.launch {
+            val msg = try { Backup.exportDeck(ctx, db, deckId, uri) } catch (e: Exception) { "Export failed: ${e.message}" }
+            toast(ctx, msg)
+        }
+    }
     val exportIdsL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/tab-separated-values")) { uri ->
         if (uri != null) scope.launch {
             val ok = try { writeUriText(ctx, uri, Tsv.idsTsv(dao, exportIds)) } catch (e: Exception) { false }
@@ -355,6 +361,8 @@ fun DeckScreen(
                                 })
                                 DropdownMenuItem(text = { Text("Import TSV file") }, onClick = { menu = false; tsvFileL.launch(arrayOf("*/*")) })
                                 DropdownMenuItem(text = { Text("Export deck as TSV") }, onClick = { menu = false; exportTsvL.launch("deck.tsv") })
+                                // NEW: Export this deck as a full backup (includes images/audio)
+                                DropdownMenuItem(text = { Text("Export deck as Backup (.zip)") }, onClick = { menu = false; exportDeckL.launch("deck-${info?.name ?: "export"}.zip") })
                                 DropdownMenuItem(text = { Text("Copy deck TSV to clipboard") }, onClick = {
                                     menu = false
                                     scope.launch { copyToClipboard(ctx, Tsv.deckTsv(dao, deckId)); toast(ctx, "Copied") }

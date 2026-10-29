@@ -16,11 +16,29 @@ import java.util.zip.ZipOutputStream
 object Backup {
     private fun audioDir(ctx: Context) = File(ctx.filesDir, "audio").apply { mkdirs() }
 
+    // Full backup (all decks)
     suspend fun export(ctx: Context, db: Db, uri: Uri): String = withContext(Dispatchers.IO) {
         val dao = db.dao()
         val decks = dao.allDecks()
         val cards = dao.allCards()
         val items = dao.allItems()
+        writeZip(ctx, uri, decks, cards, items)
+        "Backup saved: ${decks.size} decks, ${cards.size} cards"
+    }
+
+    // NEW: Single deck backup
+    suspend fun exportDeck(ctx: Context, db: Db, deckId: Long, uri: Uri): String = withContext(Dispatchers.IO) {
+        val dao = db.dao()
+        val deck = dao.allDecks().firstOrNull { it.id == deckId } ?: return@withContext "Deck not found"
+        val cards = dao.cardsOfDeck(deckId)
+        val cardIds = cards.map { it.id }
+        val items = if (cardIds.isEmpty()) emptyList() else dao.itemsOf(cardIds)
+        
+        writeZip(ctx, uri, listOf(deck), cards, items)
+        "Deck exported: ${deck.name} (${cards.size} cards)"
+    }
+
+    private fun writeZip(ctx: Context, uri: Uri, decks: List<Deck>, cards: List<Flashcard>, items: List<Item>) {
         val root = JSONObject()
         root.put("version", 2)
         val da = JSONArray()
@@ -42,6 +60,7 @@ object Backup {
                 .put("type", i.type).put("data", i.data))
         }
         root.put("items", ia)
+        
         val os = ctx.contentResolver.openOutputStream(uri) ?: throw IllegalStateException("Cannot open file")
         ZipOutputStream(os.buffered()).use { zip ->
             zip.putNextEntry(ZipEntry("backup.json"))
@@ -59,10 +78,8 @@ object Backup {
                 }
             }
         }
-        "Backup saved: ${decks.size} decks, ${cards.size} cards"
     }
 
-    /** Adds the backup's decks as new decks. Never deletes or overwrites existing data. */
     suspend fun restore(ctx: Context, db: Db, uri: Uri): String = withContext(Dispatchers.IO) {
         var json: String? = null
         val aDir = audioDir(ctx)
