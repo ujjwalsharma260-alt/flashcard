@@ -4,8 +4,21 @@ object Tsv {
     data class Row(val line: Int, val cells: List<String>)
     data class Analysis(val cards: List<List<String>>, val bad: List<Pair<Int, String>>, val maxCols: Int)
 
-    /** Tab-separated parser with quoted fields ("" = quote), multi-line cells, CRLF and BOM support. */
-    fun parse(input: String): List<Row> {
+    /**
+     * Picks the column separator. Tab wins if present anywhere.
+     * Otherwise " | " (pipe with spaces) or ";" if at least half of the non-empty lines contain it.
+     */
+    fun detectDelimiter(text: String): Char {
+        if (text.contains('\t')) return '\t'
+        val lines = text.removePrefix("\uFEFF").lines().filter { it.isNotBlank() }
+        if (lines.isEmpty()) return '\t'
+        if (lines.count { it.contains(" | ") } * 2 >= lines.size) return '|'
+        if (lines.count { it.contains(';') } * 2 >= lines.size) return ';'
+        return '\t'
+    }
+
+    /** Parser with quoted fields ("" = quote), multi-line cells, CRLF and BOM support. Default separator is Tab. */
+    fun parse(input: String, delim: Char = '\t'): List<Row> {
         val text = input.removePrefix("\uFEFF")
         val rows = ArrayList<Row>()
         var cells = ArrayList<String>()
@@ -17,6 +30,14 @@ object Tsv {
 
         fun endField() { cells.add(sb.toString()); sb.setLength(0); fieldStart = true }
         fun endRow() { endField(); rows.add(Row(rowLine, cells)); cells = ArrayList(); rowLine = line }
+
+        // A pipe only counts as a separator when it has a space on both sides (so |x| in formulas is safe).
+        fun isSeparator(i: Int): Boolean {
+            val c = text[i]
+            if (c != delim) return false
+            if (delim != '|') return true
+            return i > 0 && i + 1 < text.length && text[i - 1] == ' ' && text[i + 1] == ' '
+        }
 
         var i = 0
         while (i < text.length) {
@@ -31,7 +52,7 @@ object Tsv {
             } else if (c == '"' && fieldStart && sb.isEmpty()) {
                 inQ = true
                 fieldStart = false
-            } else if (c == '\t') {
+            } else if (isSeparator(i)) {
                 endField()
             } else if (c == '\n') {
                 line++
@@ -69,7 +90,7 @@ object Tsv {
             var n = cells.size
             while (n > 0 && cells[n - 1].isEmpty()) n--
             if (cells.size < 2) {
-                bad.add(Pair(r.line, "Only 1 column (cards need 2 to 5 columns separated by Tab)"))
+                bad.add(Pair(r.line, "Only 1 column (cards need 2 to 5 columns separated by Tab, or by \" | \")"))
             } else if (n > 5) {
                 bad.add(Pair(r.line, "More than 5 columns"))
             } else {
