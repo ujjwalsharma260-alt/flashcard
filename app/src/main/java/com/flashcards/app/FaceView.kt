@@ -11,6 +11,15 @@ import org.json.JSONObject
 
 private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+// After escaping, bring back only a small safe set of tags: <br>, <b>, <i>, <u>, <sub>, <sup>.
+private val brTag = Regex("&lt;br\\s*/?&gt;", RegexOption.IGNORE_CASE)
+private val simpleTag = Regex("&lt;(/?)(b|i|u|sub|sup)&gt;", RegexOption.IGNORE_CASE)
+
+private fun allowSafeHtml(escaped: String): String {
+    val withTags = simpleTag.replace(escaped) { m -> "<" + m.groupValues[1] + m.groupValues[2].lowercase() + ">" }
+    return brTag.replace(withTags, "<br>")
+}
+
 private val latexCommand = Regex("\\\\[a-zA-Z]+")
 private val longWord = Regex("[A-Za-z]{4,}")
 
@@ -24,12 +33,17 @@ private fun looksLikeRawLatex(t: String): Boolean {
 fun bodyHtml(items: List<Pair<String, String>>): String = items.joinToString("") { (type, data) ->
     val d = "\$\$"
     val t = data.trim()
+    var isFormula = false
     val shown = when {
-        type == "LATEX" -> if (t.startsWith("$") || t.startsWith("\\(") || t.startsWith("\\[") || t.startsWith("\\begin")) t else d + t + d
-        looksLikeRawLatex(t) -> d + t + d
+        type == "LATEX" -> {
+            isFormula = true
+            if (t.startsWith("$") || t.startsWith("\\(") || t.startsWith("\\[") || t.startsWith("\\begin")) t else d + t + d
+        }
+        looksLikeRawLatex(t) -> { isFormula = true; d + t + d }
         else -> data
     }
-    "<div class='i'>${esc(shown)}</div>"
+    val safe = if (isFormula) esc(shown) else allowSafeHtml(esc(shown))
+    "<div class='i'>$safe</div>"
 }
 
 private const val SHELL =
