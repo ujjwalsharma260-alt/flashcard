@@ -20,7 +20,8 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
     val dao = db.dao()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val rows = remember(text) { Tsv.parse(text) }
+    val delim = remember(text) { Tsv.detectDelimiter(text) }
+    val rows = remember(text, delim) { Tsv.parse(text, delim) }
     var skipHeader by remember(text) { mutableStateOf(rows.isNotEmpty() && Tsv.looksLikeHeader(rows[0])) }
     val result = remember(rows, skipHeader) { Tsv.analyze(rows, skipHeader) }
     val deckFlow = remember { dao.decks(0L) }
@@ -29,15 +30,19 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
     var newName by remember { mutableStateOf("Imported") }
     var menu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    val hasTabs = text.contains('\t')
+    val foundSeparator = text.contains('\t') || delim != '\t'
 
     Scaffold(topBar = {
         TopAppBar(title = { Text("Import cards") }, navigationIcon = { BackIcon(back) })
     }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
-            if (!hasTabs) {
-                Text("No Tab-separated columns were found.", color = MaterialTheme.colorScheme.error)
-                Text("Ask the AI for TSV: one card per line, columns separated by Tab characters (not spaces or commas).")
+            if (!foundSeparator) {
+                Text("No column separator was found.", color = MaterialTheme.colorScheme.error)
+                Text("Use one card per line, with columns separated by a Tab character or by \" | \" (a pipe with a space on each side).")
+            } else if (delim == '|') {
+                Text("Columns detected with the | separator.", style = MaterialTheme.typography.labelMedium)
+            } else if (delim == ';') {
+                Text("Columns detected with the ; separator.", style = MaterialTheme.typography.labelMedium)
             }
             Text("Detected ${result.cards.size} cards", style = MaterialTheme.typography.titleLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
