@@ -3,6 +3,8 @@
 package com.flashcards.app
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -40,6 +43,10 @@ object KolbStore {
 
     fun load(ctx: Context): List<KolbEntry> {
         val s = prefs(ctx).getString("list", null) ?: return emptyList()
+        return parse(s)
+    }
+
+    fun parse(s: String): List<KolbEntry> {
         return try {
             val arr = JSONArray(s)
             val out = ArrayList<KolbEntry>()
@@ -86,6 +93,25 @@ object KolbStore {
     fun delete(ctx: Context, id: Long) {
         val list = load(ctx)
         if (list.any { it.id == id }) write(ctx, list.filter { it.id != id })
+    }
+
+    fun exportJson(ctx: Context): String = prefs(ctx).getString("list", null) ?: "[]"
+
+    /** Merges reflections from an exported file. Same id: the newer one wins. Returns how many were added or updated. */
+    fun importJson(ctx: Context, text: String): Int {
+        val incoming = parse(text.trim())
+        if (incoming.isEmpty()) return 0
+        val merged = load(ctx).associateBy { it.id }.toMutableMap()
+        var n = 0
+        for (r in incoming) {
+            val cur = merged[r.id]
+            if (cur == null || r.updated > cur.updated) {
+                merged[r.id] = r
+                n++
+            }
+        }
+        if (n > 0) write(ctx, merged.values.toList())
+        return n
     }
 }
 
@@ -143,9 +169,49 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
     var items by remember { mutableStateOf(KolbStore.load(ctx)) }
     var menuId by remember { mutableStateOf(0L) }
     var deleteTarget by remember { mutableStateOf<KolbEntry?>(null) }
+    var topMenu by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = try { writeUriText(ctx, uri, KolbStore.exportJson(ctx)) } catch (e: Exception) { false }
+            toast(ctx, if (ok) "KOLBS exported" else "Export failed")
+        }
+    }
+    val importL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val t = readUriText(ctx, uri)
+            val n = if (t.isNullOrBlank()) 0 else KolbStore.importJson(ctx, t)
+            items = KolbStore.load(ctx)
+            toast(ctx, if (n > 0) "Imported $n reflections" else "Nothing imported (not a KOLBS file, or nothing new)")
+        }
+    }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("KOLBS") }, navigationIcon = { BackIcon(back) })
+        TopAppBar(
+            title = { Text("KOLBS") },
+            navigationIcon = { BackIcon(back) },
+            actions = {
+                Box {
+                    IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                    DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
+                        DropdownMenuItem(text = { Text("Export all to file") }, onClick = { topMenu = false; exportL.launch("kolbs-backup.json") })
+                        DropdownMenuItem(text = { Text("Import from file") }, onClick = { topMenu = false; importL.launch(arrayOf("*/*")) })
+                        DropdownMenuItem(text = { Text("Copy all as text") }, onClick = {
+                            topMenu = false
+                            if (items.isEmpty()) {
+                                toast(ctx, "Nothing to copy")
+                            } else {
+                                val txt = items.sortedBy { it.created }.joinToString("\n\n----------\n\n") { r ->
+                                    reflectionText(r, items.firstOrNull { it.id == r.followOf })
+                                }
+                                copyToClipboard(ctx, txt)
+                                toast(ctx, "Copied ${items.size} reflections")
+                            }
+                        })
+                    }
+                }
+            }
+        )
     }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 16.dp)) {
             Button(onClick = { newReflection(0L) }, modifier = Modifier.fillMaxWidth()) { Text("+ New reflection") }
