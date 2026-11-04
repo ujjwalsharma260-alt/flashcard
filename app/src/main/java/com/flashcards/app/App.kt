@@ -56,6 +56,8 @@ sealed class Screen {
     object Settings : Screen()
     object Help : Screen()
     data class Import(val deckId: Long, val text: String) : Screen()
+    object Kolb : Screen()
+    data class KolbEdit(val id: Long, val followOf: Long = 0L) : Screen()
 }
 
 data class EItem(val type: String, val data: String)
@@ -134,7 +136,8 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
                 { d, c -> stack.add(Screen.Edit(d, c)) },
                 { d, t -> stack.add(Screen.Import(d, t)) },
                 { stack.add(Screen.Settings) },
-                { stack.add(Screen.Help) }
+                { stack.add(Screen.Help) },
+                { stack.add(Screen.Kolb) }
             )
             is Screen.DeckS -> DeckScreen(
                 db, cur.id, cur.q, { pop() },
@@ -148,6 +151,12 @@ fun AppRoot(db: Db, dark: Boolean, theme: Int, onTheme: (Int) -> Unit) {
             is Screen.Import -> ImportScreen(db, cur.deckId, cur.text) { pop() }
             is Screen.Settings -> SettingsScreen { pop() }
             is Screen.Help -> HelpScreen { pop() }
+            is Screen.Kolb -> KolbListScreen(
+                { pop() },
+                { id -> stack.add(Screen.KolbEdit(id, 0L)) },
+                { followOf -> stack.add(Screen.KolbEdit(0L, followOf)) }
+            )
+            is Screen.KolbEdit -> KolbEditScreen(cur.id, cur.followOf) { pop() }
         }
     }
 }
@@ -414,4 +423,3 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
     )
 }
-

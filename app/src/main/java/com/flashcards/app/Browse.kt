@@ -59,7 +59,7 @@ fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () ->
 fun HomeScreen(
     db: Db, theme: Int, onTheme: (Int) -> Unit,
     open: (Long) -> Unit, study: (Long) -> Unit, browse: (String) -> Unit, editCard: (Long, Long) -> Unit, importText: (Long, String) -> Unit,
-    openSettings: () -> Unit, openHelp: () -> Unit
+    openSettings: () -> Unit, openHelp: () -> Unit, openKolb: () -> Unit
 ) {
     val dao = db.dao()
     val ctx = LocalContext.current
@@ -160,6 +160,19 @@ fun HomeScreen(
             }
             if (shown.isEmpty() && hits.isEmpty()) Text(if (q.isBlank()) "No decks yet. Tap + Create Deck." else "Nothing matches \"$q\".", Modifier.padding(24.dp))
             LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
+                if (q.isBlank()) {
+                    item(key = "kolbs") {
+                        Card(
+                            colors = cardC(),
+                            modifier = Modifier.fillMaxWidth().clickable { openKolb() }
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("KOLBS", style = MaterialTheme.typography.titleLarge)
+                                Text("Reflect on your week and plan small improvements")
+                            }
+                        }
+                    }
+                }
                 items(shown, key = { "d${it.id}" }) { d ->
                     Card(
                         colors = cardC(),
