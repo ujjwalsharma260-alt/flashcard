@@ -87,7 +87,7 @@ object AppSettings {
 
 @Composable
 private fun Section(title: String, desc: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp), colors = cardC()) {
+    AppCard(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(desc, style = MaterialTheme.typography.bodyMedium)
@@ -130,11 +130,12 @@ fun SettingsContent() {
             "Style",
             "Plain: flat, calm surfaces — the cleanest option.\n" +
                 "Colorful: each deck tile gets its own vivid gradient, and the background has soft glowing blobs.\n" +
-                "Liquid: frosted glass panels over a soft blurred background — modern and calm."
+                "Liquid: frosted glass panels over a soft blurred background — modern and calm.\n" +
+                "Clay: soft pastel panels, very round corners and a gentle 3D edge — playful and tactile. Works on every Android version."
         ) {
             Choices(styleNames.mapIndexed { i, n -> n to i }, s.style) { v -> changed { s.style = v } }
             Text(
-                "Engine: tokens v2 — active theme: " + themeSpec(s.base, s.style, s.intensity, s.accent).name,
+                "Engine: tokens v3 — active theme: " + themeSpec(s.base, s.style, s.intensity, s.accent).name,
                 style = MaterialTheme.typography.labelSmall
             )
         }

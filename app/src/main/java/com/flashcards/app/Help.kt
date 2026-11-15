@@ -215,7 +215,7 @@ fun HelpScreen(back: () -> Unit) {
                 val title = iv.value.first
                 val body = iv.value.second
                 val open = q.isNotEmpty() || openIdx == i
-                Card(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { openIdx = if (openIdx == i) -1 else i }, colors = cardC()) {
+                AppCard(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { openIdx = if (openIdx == i) -1 else i }) {
                     Column(Modifier.padding(14.dp)) {
                         Text(highlight(title, q, LocalTheme.current.highlight, LocalTheme.current.onHighlight), style = MaterialTheme.typography.titleMedium)
                         if (open) {

@@ -1,23 +1,28 @@
 package com.flashcards.app
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 val baseNames = listOf("Dark", "Light")
-val styleNames = listOf("Plain", "Colorful", "Liquid")
+val styleNames = listOf("Plain", "Colorful", "Liquid", "Clay")
 
 // Accent colours offered in Settings. 0L = "Auto" (uses a soft purple default).
 val accentPalette: List<Pair<String, Long>> = listOf(
@@ -101,24 +106,34 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
         val bg = when (style) {
             1 -> Color(0xFFF5F3FF)
             2 -> Color(0xFFF0F4F8)
+            3 -> Color(0xFFF1EAE3)
             else -> Color(0xFFFAFAFA)
         }
-        val surface = if (style == 2) Color(0xFFF8FAFC) else Color.White
+        val surface = when (style) {
+            2 -> Color(0xFFF8FAFC)
+            3 -> Color(0xFFFBF5EF)
+            else -> Color.White
+        }
         val variant = when (style) {
             1 -> Color(0xFFEDE7F6)
             2 -> Color(0xFFE3E9F0)
+            3 -> Color(0xFFFFE3D3)
             else -> Color(0xFFEFEFEF)
         }
+        // Clay uses warm brown ink instead of near-black, so the pastel fills do not glare.
+        val ink = if (style == 3) Color(0xFF3A2E27) else Color(0xFF1A1A1A)
+        val inkSoft = if (style == 3) Color(0xFF5C4033) else Color(0xFF2A2A2A)
+        val line = if (style == 3) Color(0xFFD9C7B8) else Color(0xFFCCCCCC)
         lightColorScheme(
             primary = accentColor, onPrimary = Color.White,
-            primaryContainer = variant, onPrimaryContainer = Color(0xFF1A1A1A),
+            primaryContainer = variant, onPrimaryContainer = ink,
             secondary = accentSoft, onSecondary = Color.White,
-            background = bg, onBackground = Color(0xFF1A1A1A),
-            surface = surface, onSurface = Color(0xFF1A1A1A),
-            surfaceVariant = variant, onSurfaceVariant = Color(0xFF2A2A2A),
-            outline = Color(0xFFCCCCCC), outlineVariant = variant,
+            background = bg, onBackground = ink,
+            surface = surface, onSurface = ink,
+            surfaceVariant = variant, onSurfaceVariant = inkSoft,
+            outline = line, outlineVariant = variant,
             tertiary = accentColor, onTertiary = Color.White,
-            tertiaryContainer = variant, onTertiaryContainer = Color(0xFF1A1A1A),
+            tertiaryContainer = variant, onTertiaryContainer = ink,
             surfaceTint = accentColor,
             inverseSurface = Color(0xFF303030), inverseOnSurface = Color(0xFFF5F5F5),
             inversePrimary = accentColor,
@@ -131,28 +146,34 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
         val bg = when (style) {
             1 -> Color(0xFF0A0A12)
             2 -> Color(0xFF0D1015)
+            3 -> Color(0xFF2A2320)
             else -> Color(0xFF121212)
         }
         val surface = when (style) {
             1 -> Color(0xFF15151E)
             2 -> Color(0xFF161A20)
+            3 -> Color(0xFF332B27)
             else -> Color(0xFF1C1C1C)
         }
         val variant = when (style) {
             1 -> Color(0xFF23222E)
             2 -> Color(0xFF212630)
+            3 -> Color(0xFF3F342E)
             else -> Color(0xFF2A2A2A)
         }
+        val ink = if (style == 3) Color(0xFFF3EAE3) else Color(0xFFECECEC)
+        val inkSoft = if (style == 3) Color(0xFFE0D2C8) else Color(0xFFD6D6D6)
+        val line = if (style == 3) Color(0xFF5A4B41) else Color(0xFF3A3A3A)
         darkColorScheme(
             primary = accentColor, onPrimary = Color.White,
-            primaryContainer = variant, onPrimaryContainer = Color(0xFFECECEC),
+            primaryContainer = variant, onPrimaryContainer = ink,
             secondary = accentSoft, onSecondary = Color.White,
-            background = bg, onBackground = Color(0xFFECECEC),
-            surface = surface, onSurface = Color(0xFFECECEC),
-            surfaceVariant = variant, onSurfaceVariant = Color(0xFFD6D6D6),
-            outline = Color(0xFF3A3A3A), outlineVariant = variant,
+            background = bg, onBackground = ink,
+            surface = surface, onSurface = ink,
+            surfaceVariant = variant, onSurfaceVariant = inkSoft,
+            outline = line, outlineVariant = variant,
             tertiary = accentColor, onTertiary = Color(0xFF111111),
-            tertiaryContainer = variant, onTertiaryContainer = Color(0xFFECECEC),
+            tertiaryContainer = variant, onTertiaryContainer = ink,
             surfaceTint = accentColor,
             inverseSurface = Color(0xFFECECEC), inverseOnSurface = Color(0xFF1A1A1A),
             inversePrimary = accentColor,
@@ -174,6 +195,7 @@ data class SurfaceSpec(
     val border: Color? = null,
     val corner: Dp = 12.dp,
     val shadow: Dp = 1.dp,
+    val shadowColor: Color? = null,   // tinted shadow; Android 9+ only, older phones use grey
     val blur: Boolean = false,        // glass only, and only on Android 12+
     val innerLight: Boolean = false   // clay only (the puffy highlight)
 )
@@ -205,20 +227,29 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
     val scheme = buildScheme(base, style, intensity, accent)
     val baseName = if (base == 1) "Light" else "Dark"
     val styleName = styleNames.getOrNull(style) ?: "Plain"
+    val clay = style == 3
+    // Clay: rounder everything, a soft warm shadow and a light edge. All of this is
+    // ordinary drawing — no Android 12 features — so it works on every supported phone.
+    val edge = if (base == 1) Color(0x99FFFFFF) else Color(0x1FFFFFFF)
     return AppThemeSpec(
         id = "b" + base + "_s" + style,
         name = baseName + " " + styleName,
         scheme = scheme,
-        shapes = themeShapes(cornerScale),
+        shapes = themeShapes(if (clay) cornerScale * 1.25f else cornerScale),
         card = SurfaceSpec(
             fill = scheme.surfaceVariant,
             content = scheme.onSurfaceVariant,
-            corner = 12.dp * cornerScale
+            border = if (clay) edge else null,
+            corner = (if (clay) 28.dp else 12.dp) * cornerScale,
+            shadow = if (clay) 10.dp else 1.dp,
+            shadowColor = if (clay) Color(0xFF9C7A5E) else null,
+            innerLight = clay
         ),
         dialog = SurfaceSpec(
             fill = scheme.surface,
             content = scheme.onSurface,
-            corner = 28.dp * cornerScale
+            corner = (if (clay) 32.dp else 28.dp) * cornerScale,
+            shadow = if (clay) 16.dp else 1.dp
         ),
         favorite = Color(0xFFFFB300),
         highlight = Color(0xFFFFD54F),
@@ -236,15 +267,53 @@ fun cardC() = CardDefaults.cardColors(
     contentColor = LocalTheme.current.card.content
 )
 
-// The single painter every screen should use for cards. Visually identical to the
-// current cards, because the default tokens match the Material 3 defaults.
+// The single painter every screen uses for cards. Everything a theme needs to say about
+// a card lives in SurfaceSpec: fill, edge, corner radius, shadow and the clay highlight.
+// `fill` / `contentColor` are only for state colouring (e.g. a selected row).
 @Composable
-fun AppCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun AppCard(
+    modifier: Modifier = Modifier,
+    fill: Color? = null,
+    contentColor: Color? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val s = LocalTheme.current.card
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(s.corner),
-        colors = CardDefaults.cardColors(containerColor = s.fill, contentColor = s.content),
-        elevation = CardDefaults.cardElevation(defaultElevation = s.shadow)
-    ) { content() }
+    val shape = RoundedCornerShape(s.corner)
+    val shadowMod = if (s.shadowColor != null) {
+        Modifier.shadow(
+            elevation = s.shadow,
+            shape = shape,
+            clip = false,
+            ambientColor = s.shadowColor,
+            spotColor = s.shadowColor
+        )
+    } else {
+        Modifier.shadow(elevation = s.shadow, shape = shape, clip = false)
+    }
+    Surface(
+        modifier = modifier.then(shadowMod),
+        shape = shape,
+        color = fill ?: s.fill,
+        contentColor = contentColor ?: s.content,
+        shadowElevation = 0.dp,
+        border = s.border?.let { BorderStroke(1.dp, it) }
+    ) {
+        Box {
+            if (s.innerLight) {
+                // Clay's puffy look: a soft white glow that fades out down the card.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.White.copy(alpha = 0.40f),
+                                0.42f to Color.White.copy(alpha = 0.05f),
+                                1f to Color.Transparent
+                            )
+                        )
+                )
+            }
+            Column { content() }
+        }
+    }
 }

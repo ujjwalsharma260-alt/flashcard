@@ -39,11 +39,10 @@ fun stateLabel(state: Int, suspended: Int): String =
 
 @Composable
 fun CardRowItem(r: CardRow, selected: Boolean, showDeck: Boolean, onClick: () -> Unit, onLong: () -> Unit) {
-    Card(
+    AppCard(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLong),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-        )
+        fill = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
     ) {
         Column(Modifier.padding(12.dp)) {
             Text((if (r.fav == 1) "★ " else "") + (if (r.bookmark == 1) "🔖 " else "") + (r.preview ?: "(handwriting / image / voice)").take(120), maxLines = 2)
@@ -162,8 +161,7 @@ fun HomeScreen(
             LazyColumn(state = homeList, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 88.dp)) {
                 if (q.isBlank()) {
                     item(key = "kolbs") {
-                        Card(
-                            colors = cardC(),
+                        AppCard(
                             modifier = Modifier.fillMaxWidth().clickable { openKolb() }
                         ) {
                             Column(Modifier.padding(16.dp)) {
@@ -174,8 +172,7 @@ fun HomeScreen(
                     }
                 }
                 items(shown, key = { "d${it.id}" }) { d ->
-                    Card(
-                        colors = cardC(),
+                    AppCard(
                         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = { study(d.id) }, onLongClick = { tileMenu = d.id })
                     ) {
                         Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -394,7 +391,7 @@ fun DeckScreen(
                 val ready = (info?.let { it.fresh + it.due } ?: 0)
                 val setSize = AppSettings.sessionSize
                 Text("${info?.total ?: 0} cards  |  ${info?.fresh ?: 0} new  |  ${info?.due ?: 0} due")
-                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = cardC()) {
+                AppCard(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Cards per study set", style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

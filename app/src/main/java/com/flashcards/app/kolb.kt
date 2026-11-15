@@ -348,7 +348,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             if (items.isEmpty()) Text("No reflections yet. Tap + New reflection.", Modifier.padding(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
                 items(items, key = { it.id }) { r ->
-                    Card(colors = cardC(), modifier = Modifier.fillMaxWidth().clickable { open(r.id) }) {
+                    AppCard(modifier = Modifier.fillMaxWidth().clickable { open(r.id) }) {
                         Row(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
@@ -474,7 +474,7 @@ fun KolbEditScreen(id: Long, followOf: Long, back: () -> Unit) {
                     modifier = Modifier.padding(top = 12.dp)
                 )
                 if (prev != null && step <= 1) {
-                    Card(colors = cardC(), modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    AppCard(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Column(Modifier.padding(12.dp)) {
                             Text("Experiment you planned last time", style = MaterialTheme.typography.labelLarge)
                             Text(prev.a["next"].orEmpty().ifBlank { "(nothing written)" })
