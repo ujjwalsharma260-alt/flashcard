@@ -6,6 +6,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -115,7 +116,15 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             background = bg, onBackground = Color(0xFF1A1A1A),
             surface = surface, onSurface = Color(0xFF1A1A1A),
             surfaceVariant = variant, onSurfaceVariant = Color(0xFF2A2A2A),
-            outline = Color(0xFFCCCCCC), outlineVariant = variant
+            outline = Color(0xFFCCCCCC), outlineVariant = variant,
+            tertiary = accentColor, onTertiary = Color.White,
+            tertiaryContainer = variant, onTertiaryContainer = Color(0xFF1A1A1A),
+            surfaceTint = accentColor,
+            inverseSurface = Color(0xFF303030), inverseOnSurface = Color(0xFFF5F5F5),
+            inversePrimary = accentColor,
+            error = Color(0xFFB3261E), onError = Color.White,
+            errorContainer = Color(0xFFF9DEDC), onErrorContainer = Color(0xFF410E0B),
+            scrim = Color(0xFF000000)
         )
     } else {
         // DARK
@@ -141,7 +150,15 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             background = bg, onBackground = Color(0xFFECECEC),
             surface = surface, onSurface = Color(0xFFECECEC),
             surfaceVariant = variant, onSurfaceVariant = Color(0xFFD6D6D6),
-            outline = Color(0xFF3A3A3A), outlineVariant = variant
+            outline = Color(0xFF3A3A3A), outlineVariant = variant,
+            tertiary = accentColor, onTertiary = Color(0xFF111111),
+            tertiaryContainer = variant, onTertiaryContainer = Color(0xFFECECEC),
+            surfaceTint = accentColor,
+            inverseSurface = Color(0xFFECECEC), inverseOnSurface = Color(0xFF1A1A1A),
+            inversePrimary = accentColor,
+            error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
+            errorContainer = Color(0xFF93000A), onErrorContainer = Color(0xFFFFDAD6),
+            scrim = Color(0xFF000000)
         )
     }
 }
@@ -165,11 +182,22 @@ data class AppThemeSpec(
     val id: String,
     val name: String,
     val scheme: ColorScheme,
+    val shapes: Shapes,
     val card: SurfaceSpec,
     val dialog: SurfaceSpec
 )
 
-fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long): AppThemeSpec {
+// One number changes the roundness of every Material component: buttons, chips, tabs,
+// text fields, dialogs, menus. 1f = exactly what the app uses today.
+fun themeShapes(scale: Float): Shapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp * scale),
+    small = RoundedCornerShape(8.dp * scale),
+    medium = RoundedCornerShape(12.dp * scale),
+    large = RoundedCornerShape(16.dp * scale),
+    extraLarge = RoundedCornerShape(28.dp * scale)
+)
+
+fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: Float = 1f): AppThemeSpec {
     val scheme = buildScheme(base, style, intensity, accent)
     val baseName = if (base == 1) "Light" else "Dark"
     val styleName = styleNames.getOrNull(style) ?: "Plain"
@@ -177,8 +205,17 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long): AppThemeSpec
         id = "b" + base + "_s" + style,
         name = baseName + " " + styleName,
         scheme = scheme,
-        card = SurfaceSpec(fill = scheme.surfaceVariant, content = scheme.onSurfaceVariant),
-        dialog = SurfaceSpec(fill = scheme.surface, content = scheme.onSurface)
+        shapes = themeShapes(cornerScale),
+        card = SurfaceSpec(
+            fill = scheme.surfaceVariant,
+            content = scheme.onSurfaceVariant,
+            corner = 12.dp * cornerScale
+        ),
+        dialog = SurfaceSpec(
+            fill = scheme.surface,
+            content = scheme.onSurface,
+            corner = 28.dp * cornerScale
+        )
     )
 }
 
