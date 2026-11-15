@@ -150,7 +150,7 @@ fun ZoomDialog(name: String, onClose: () -> Unit) {
                 maxSide = 2200
             )
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = LocalTheme.current.onMedia)
             }
         }
     }

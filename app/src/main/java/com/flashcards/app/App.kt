@@ -276,7 +276,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                     fav = nv
                     if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(fav = if (nv) 1 else 0)) } }
                 }) {
-                    Icon(Icons.Default.Star, contentDescription = "Favorite", tint = if (fav) Color(0xFFFFB300) else LocalContentColor.current)
+                    Icon(Icons.Default.Star, contentDescription = "Favorite", tint = if (fav) LocalTheme.current.favorite else LocalContentColor.current)
                 }
                 Box {
                     IconButton(onClick = { editMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }

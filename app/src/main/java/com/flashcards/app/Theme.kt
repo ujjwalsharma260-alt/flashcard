@@ -184,7 +184,11 @@ data class AppThemeSpec(
     val scheme: ColorScheme,
     val shapes: Shapes,
     val card: SurfaceSpec,
-    val dialog: SurfaceSpec
+    val dialog: SurfaceSpec,
+    val favorite: Color,
+    val highlight: Color,
+    val onHighlight: Color,
+    val onMedia: Color
 )
 
 // One number changes the roundness of every Material component: buttons, chips, tabs,
@@ -215,7 +219,11 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
             fill = scheme.surface,
             content = scheme.onSurface,
             corner = 28.dp * cornerScale
-        )
+        ),
+        favorite = Color(0xFFFFB300),
+        highlight = Color(0xFFFFD54F),
+        onHighlight = Color.Black,
+        onMedia = Color.White
     )
 }
 

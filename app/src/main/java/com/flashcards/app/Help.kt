@@ -179,7 +179,7 @@ private val helpSections: List<Pair<String, String>> = listOf(
         "Before big changes, always do Export backup first."
 )
 
-private fun highlight(text: String, q: String): AnnotatedString {
+private fun highlight(text: String, q: String, bg: Color, fg: Color): AnnotatedString {
     if (q.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         var i = 0
@@ -187,7 +187,7 @@ private fun highlight(text: String, q: String): AnnotatedString {
             val j = text.indexOf(q, i, ignoreCase = true)
             if (j < 0) { append(text.substring(i)); break }
             append(text.substring(i, j))
-            withStyle(SpanStyle(background = Color(0xFFFFD54F), color = Color.Black)) { append(text.substring(j, j + q.length)) }
+            withStyle(SpanStyle(background = bg, color = fg)) { append(text.substring(j, j + q.length)) }
             i = j + q.length
         }
     }
@@ -217,10 +217,10 @@ fun HelpScreen(back: () -> Unit) {
                 val open = q.isNotEmpty() || openIdx == i
                 Card(Modifier.fillMaxWidth().padding(vertical = 5.dp).clickable { openIdx = if (openIdx == i) -1 else i }, colors = cardC()) {
                     Column(Modifier.padding(14.dp)) {
-                        Text(highlight(title, q), style = MaterialTheme.typography.titleMedium)
+                        Text(highlight(title, q, LocalTheme.current.highlight, LocalTheme.current.onHighlight), style = MaterialTheme.typography.titleMedium)
                         if (open) {
                             Spacer(Modifier.height(8.dp))
-                            Text(highlight(body, q), style = MaterialTheme.typography.bodyLarge)
+                            Text(highlight(body, q, LocalTheme.current.highlight, LocalTheme.current.onHighlight), style = MaterialTheme.typography.bodyLarge)
                         }
                     }
                 }
