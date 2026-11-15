@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -143,6 +144,126 @@ private val kolbSteps = listOf(
     ))
 )
 
+// ---------- guide (the template, readable inside the app) ----------
+
+private val gRules = listOf(
+    "One cycle = one specific study session or experiment. Never a whole week.",
+    "Stay on the same problem for 3 cycles before you switch to a new one.",
+    "Do it the same evening, while the details are still fresh.",
+    "Fill every box. A short Reflection breaks every step after it.",
+    "Finish by writing the question you want answered in the next cycle."
+)
+
+private val gGains = listOf(
+    "Unconscious incompetence: noticing that a problem exists, and becoming open to being wrong.",
+    "Conscious incompetence: spotting your mistakes faster, and finding MORE of the ways you go wrong.",
+    "Conscious competence: needing less effort, and being consistent more often.",
+    "Unconscious competence: refining it and making it yours."
+)
+
+private data class GStep(val n: String, val title: String, val must: String, val good: String, val bad: String)
+
+private val gSteps = listOf(
+    GStep(
+        "1", "Experience",
+        "One specific, recent thing you actually did. A process, never a result.",
+        "On 5 Nov I started a study session at 10:40 after closing YouTube, with no written plan. It lasted 25 minutes.",
+        "'I did badly on my test' is a result. 'I studied biology' is too broad."
+    ),
+    GStep(
+        "2", "Reflection",
+        "Long, in time order, about the process: what you did, felt, tried and avoided. This is the data. If it is one line, everything after it is guesswork.",
+        "10:40 filled water, cleared desk, started timer. Opened the chemistry folder and saw three options. Re-read the same page twice. Eight minutes later I picked up my phone.",
+        "'I tried to study but had no goal' is a summary, not a sequence. Feelings only ('I felt terrible, terrible') is rumination."
+    ),
+    GStep(
+        "3", "Abstraction",
+        "The pattern or habit behind it. You must be able to underline the line in your Reflection that proves it.",
+        "The stall began at the point of choosing, not at the point of sitting down. The setup was fine; the decision was not.",
+        "'I think it is because I have no timetable' is a guess. 'I am just lazy' is a label, not a cause."
+    ),
+    GStep(
+        "4", "Experiment",
+        "One or two actions that test the abstraction, specific enough that you can tell later whether you did them.",
+        "Tonight, write tomorrow's three tasks on one note and leave it on the desk. The session starts by reading it. Tally sessions that start within 2 minutes.",
+        "'Try harder' is an intention. Eight new things at once is overload. 'Get 80% next time' is a result."
+    ),
+    GStep(
+        "5", "Cycle",
+        "The next reflection's Experience IS this experiment. Name it in the first box and pick Yes.",
+        "I used the nightly note for 4 sessions: 3 started within 2 minutes, and the 4th failed because I had not written it.",
+        "A new problem in every reflection. Nothing compounds, and it feels like Kolb's does not work."
+    )
+)
+
+private val gChecks = listOf(
+    "Experience is a process, not a result, and it is narrow.",
+    "My Reflection would let a stranger picture the moment.",
+    "Every abstraction can be underlined in my Reflection.",
+    "I have 1 to 3 experiments, each traceable to the abstraction.",
+    "I can tell tomorrow whether the experiment happened.",
+    "The next cycle starts with this experiment."
+)
+
+private val gFlags = listOf(
+    "Experience: a result, a label, or a whole week.",
+    "Reflection: one-liners, feelings only, or a verdict.",
+    "Abstraction: 'I think...', nothing to underline, or a character label.",
+    "Experiment: 'try harder', 4 or more changes, or unrelated to the abstraction.",
+    "Cycling: a new problem every cycle."
+)
+
+@Composable
+private fun GuideHead(t: String) {
+    Text(t, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 6.dp))
+}
+
+@Composable
+private fun GuideBullet(t: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text("•  ", style = MaterialTheme.typography.bodyMedium)
+        Text(t, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun KolbGuideDialog(onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("How to do a Kolb's", style = MaterialTheme.typography.titleLarge)
+                Text("Rules, examples and a check before you close a cycle.", style = MaterialTheme.typography.labelMedium)
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item { GuideHead("The 5 rules") }
+                    items(gRules) { r -> GuideBullet(r) }
+                    item { GuideHead("What counts as a marginal gain") }
+                    items(gGains) { r -> GuideBullet(r) }
+                    items(gSteps) { s ->
+                        Column(Modifier.fillMaxWidth()) {
+                            Text(s.n + ". " + s.title, style = MaterialTheme.typography.titleMedium)
+                            Text(s.must, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp))
+                            Text("Good: " + s.good, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                            Text("Wrong: " + s.bad, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+                        }
+                    }
+                    item { GuideHead("Check before you close") }
+                    items(gChecks) { r -> GuideBullet(r) }
+                    item { GuideHead("Red flags") }
+                    items(gFlags) { r -> GuideBullet(r) }
+                }
+                Button(onClick = onClose, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Got it") }
+            }
+        }
+    }
+}
+
 private fun fmtDate(ms: Long): String = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(Date(ms))
 
 private fun reflectionText(r: KolbEntry, prev: KolbEntry?): String {
@@ -170,6 +291,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
     var menuId by remember { mutableStateOf(0L) }
     var deleteTarget by remember { mutableStateOf<KolbEntry?>(null) }
     var topMenu by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
@@ -191,6 +313,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             title = { Text("KOLBS") },
             navigationIcon = { BackIcon(back) },
             actions = {
+                TextButton(onClick = { showGuide = true }) { Text("Guide") }
                 Box {
                     IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                     DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
@@ -217,7 +340,8 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             Button(onClick = { newReflection(0L) }, modifier = Modifier.fillMaxWidth()) { Text("+ New reflection") }
             Text(
                 "Reflect on an experience in 4 steps: Experience, Reflection, Abstraction, Experiment. " +
-                    "Open an old reflection and use Follow up to review how your experiment went.",
+                    "Open an old reflection and use Follow up to review how your experiment went. " +
+                    "Tap Guide for the rules, examples and self-check.",
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
@@ -253,6 +377,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             }
         }
     }
+    if (showGuide) KolbGuideDialog(onClose = { showGuide = false })
     deleteTarget?.let { t ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
