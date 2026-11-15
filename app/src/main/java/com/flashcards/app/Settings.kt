@@ -133,6 +133,10 @@ fun SettingsContent() {
                 "Liquid: frosted glass panels over a soft blurred background — modern and calm."
         ) {
             Choices(styleNames.mapIndexed { i, n -> n to i }, s.style) { v -> changed { s.style = v } }
+            Text(
+                "Engine: tokens v1 — active theme: " + themeSpec(s.base, s.style, s.intensity, s.accent).name,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
 
         Section(

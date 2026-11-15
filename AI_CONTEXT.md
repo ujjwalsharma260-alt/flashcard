@@ -98,6 +98,7 @@ Other: `app/build.gradle.kts`, `build.gradle.kts`, `settings.gradle.kts`, `gradl
 
 - **New screen:** add an object/data class to `sealed class Screen`, a branch in `AppRoot`'s `when`, a `@Composable fun XScreen(...)`, and a way to open it (`stack.add(Screen.X)`).
 - **New setting:** add a `mutableStateOf` field in `AppSettings`, load it in `init`, write it in `save`, reset it in `reset`, add a control in `SettingsContent` (`Section` + `Choices`/`OnOff`), and mention it in the Help text.
+- **New theme style (tokens):** themes are data in `Theme.kt` — `SurfaceSpec` (fill, border, corner, shadow, blur, innerLight) + `AppThemeSpec` + `themeSpec()`, provided once via `LocalTheme` in `MainActivity`. `cardC()` already reads the tokens, and `AppCard { }` is the intended painter for cards. Put new colours/radii/shadows in a `SurfaceSpec`, never in a screen. `Settings` shows "tokens v1" under Style as a build marker; remove it when the style work is finished.
 - **New card content type:** new `Item.type` string; handle it in the editor item loop (App.kt), in `Review.kt` (visuals), `Tsv`/`Backup` if it has files; media files must be copied in `Bulk.copyMedia` and added to backups.
 - **Help text:** edit the `helpSections` list in `Help.kt` (plain strings; escape `$` as `\$` and backslashes as `\\`). Keep the language simple enough for an 8-year-old, with examples.
 - Always update `Help.kt` when behavior visible to the user changes.

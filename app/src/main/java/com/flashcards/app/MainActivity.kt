@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 
 class MainActivity : ComponentActivity() {
@@ -35,10 +37,12 @@ class MainActivity : ComponentActivity() {
             val intensity = AppSettings.intensity
             val accent = AppSettings.accent
             val dark = base == 0
-            val scheme = buildScheme(base, style, intensity, accent)
-            MaterialTheme(colorScheme = scheme) {
-                Surface(Modifier.fillMaxSize()) {
-                    AppRoot(db, dark, 0) { /* legacy onTheme unused */ }
+            val spec = remember(base, style, intensity, accent) { themeSpec(base, style, intensity, accent) }
+            CompositionLocalProvider(LocalTheme provides spec) {
+                MaterialTheme(colorScheme = spec.scheme) {
+                    Surface(Modifier.fillMaxSize()) {
+                        AppRoot(db, dark, 0) { /* legacy onTheme unused */ }
+                    }
                 }
             }
         }

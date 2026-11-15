@@ -1,12 +1,19 @@
 package com.flashcards.app
 
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 val baseNames = listOf("Dark", "Light")
 val styleNames = listOf("Plain", "Colorful", "Liquid")
@@ -139,8 +146,60 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
     }
 }
 
+// ---- design tokens ----
+// A theme is data, not if/else in the screens. Step 1 keeps the exact same values the
+// app already used (Material 3 defaults: 12dp corners, 1dp shadow), so nothing looks
+// different yet. Later styles only change these numbers.
+
+data class SurfaceSpec(
+    val fill: Color,
+    val content: Color,
+    val border: Color? = null,
+    val corner: Dp = 12.dp,
+    val shadow: Dp = 1.dp,
+    val blur: Boolean = false,        // glass only, and only on Android 12+
+    val innerLight: Boolean = false   // clay only (the puffy highlight)
+)
+
+data class AppThemeSpec(
+    val id: String,
+    val name: String,
+    val scheme: ColorScheme,
+    val card: SurfaceSpec,
+    val dialog: SurfaceSpec
+)
+
+fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long): AppThemeSpec {
+    val scheme = buildScheme(base, style, intensity, accent)
+    val baseName = if (base == 1) "Light" else "Dark"
+    val styleName = styleNames.getOrNull(style) ?: "Plain"
+    return AppThemeSpec(
+        id = "b" + base + "_s" + style,
+        name = baseName + " " + styleName,
+        scheme = scheme,
+        card = SurfaceSpec(fill = scheme.surfaceVariant, content = scheme.onSurfaceVariant),
+        dialog = SurfaceSpec(fill = scheme.surface, content = scheme.onSurface)
+    )
+}
+
+// Set once in MainActivity; any screen can read LocalTheme.current.card etc.
+val LocalTheme = staticCompositionLocalOf { themeSpec(0, 0, 70, 0L) }
+
 @Composable
 fun cardC() = CardDefaults.cardColors(
-    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    containerColor = LocalTheme.current.card.fill,
+    contentColor = LocalTheme.current.card.content
 )
+
+// The single painter every screen should use for cards. Visually identical to the
+// current cards, because the default tokens match the Material 3 defaults.
+@Composable
+fun AppCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val s = LocalTheme.current.card
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(s.corner),
+        colors = CardDefaults.cardColors(containerColor = s.fill, contentColor = s.content),
+        elevation = CardDefaults.cardElevation(defaultElevation = s.shadow)
+    ) { content() }
+}
