@@ -607,12 +607,12 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {
+                AppIconButton(onClick = {
                     stopSpeedAndBrowse()
                     back()
                 }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = grayText) }
                 Text(titleText, color = grayText, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                IconButton(onClick = { showSettings = true }) { Text("⚙", color = grayText, fontSize = 24.sp) }
+                AppIconButton(onClick = { showSettings = true }) { Text("⚙", color = grayText, fontSize = 24.sp) }
             }
             val total = max(setTotal, 1)
             LinearProgressIndicator(
@@ -908,7 +908,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Random", "From start", "Serial").forEachIndexed { i, l ->
-                        FilterChip(selected = speedMode == i, onClick = { speedMode = i }, label = { Text(l) })
+                        AppChip(selected = speedMode == i, onClick = { speedMode = i }, label = { Text(l) })
                     }
                 }
                 Spacer(Modifier.height(14.dp))
@@ -916,7 +916,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(5, 10, 15, 20, 30).forEach { s ->
-                        FilterChip(selected = speedSeconds == s, onClick = { speedSeconds = s }, label = { Text("${s}s") })
+                        AppChip(selected = speedSeconds == s, onClick = { speedSeconds = s }, label = { Text("${s}s") })
                     }
                 }
             }
@@ -934,7 +934,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             Column {
                 Text("Enter a card number (1 to $setTotal)", color = grayText, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                AppField(
                     value = skipText,
                     onValueChange = { v -> skipText = v.filter { it.isDigit() }.take(6) },
                     singleLine = true,
@@ -968,7 +968,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Random", "From start", "Serial").forEachIndexed { i, l ->
-                        FilterChip(selected = browseMode == i, onClick = { browseMode = i }, label = { Text(l) })
+                        AppChip(selected = browseMode == i, onClick = { browseMode = i }, label = { Text(l) })
                     }
                 }
                 Spacer(Modifier.height(14.dp))
@@ -976,7 +976,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(3, 5, 8, 12, 20).forEach { s ->
-                        FilterChip(selected = browseDelay == s, onClick = { browseDelay = s }, label = { Text("${s}s") })
+                        AppChip(selected = browseDelay == s, onClick = { browseDelay = s }, label = { Text("${s}s") })
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1024,7 +1024,7 @@ private fun ReviewContent(db: Db, deckId: Long, mode: Int, openDeck: () -> Unit,
             Column {
                 Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { showSettings = false }) { Icon(Icons.Default.Close, contentDescription = "Close") }
+                    AppIconButton(onClick = { showSettings = false }) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 }
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
                     SettingsContent()

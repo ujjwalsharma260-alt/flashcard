@@ -2,19 +2,34 @@ package com.flashcards.app
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -22,7 +37,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -269,6 +286,7 @@ data class SurfaceSpec(
 data class AppThemeSpec(
     val id: String,
     val name: String,
+    val neumorph: Boolean = false,
     val scheme: ColorScheme,
     val shapes: Shapes,
     val card: SurfaceSpec,
@@ -302,6 +320,7 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
     return AppThemeSpec(
         id = "b" + base + "_s" + style,
         name = baseName + " " + styleName,
+        neumorph = neumo,
         scheme = scheme,
         shapes = themeShapes(
             when {
@@ -353,6 +372,79 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
 // Set once in MainActivity; any screen can read LocalTheme.current.card etc.
 val LocalTheme = staticCompositionLocalOf { themeSpec(0, 0, 70, 0L) }
 
+// The colour of the surface an element is sitting on. Neumorphism only works when a raised
+// chip is the same colour as the card behind it, so AppCard publishes its own fill here.
+val LocalSurfaceFill = staticCompositionLocalOf { Color(0xFFE4E7EE) }
+
+// ---- neumorphic painters ----
+// Raised: a dark band bottom-right and a light band top-left. Each band is a stack of thin
+// rings whose alpha fades outward, so it looks blurred without a blur filter (API 26 safe).
+fun Modifier.raisedSoft(spec: SurfaceSpec, reach: Dp = spec.raise): Modifier {
+    val dark = spec.darkShadow
+    val glare = spec.lightShadow
+    if (dark == null || glare == null || reach <= 0.dp) return this
+    return this.drawBehind {
+        val cr = CornerRadius(spec.corner.toPx())
+        val r = reach.toPx()
+        val d = r * 0.35f
+        val steps = 8
+        val step = r / steps
+        for (i in steps downTo 1) {
+            val grow = step * i
+            val fade = 1f - (i - 1) / steps.toFloat()
+            drawRoundRect(
+                color = dark.copy(alpha = dark.alpha * fade * 0.55f),
+                topLeft = Offset(d - grow, d - grow),
+                size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                cornerRadius = CornerRadius(cr + grow),
+                style = Stroke(width = step * 1.6f)
+            )
+        }
+        for (i in steps downTo 1) {
+            val grow = step * i
+            val fade = 1f - (i - 1) / steps.toFloat()
+            drawRoundRect(
+                color = glare.copy(alpha = glare.alpha * fade * 0.70f),
+                topLeft = Offset(-d - grow, -d - grow),
+                size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                cornerRadius = CornerRadius(cr + grow),
+                style = Stroke(width = step * 1.6f)
+            )
+        }
+    }
+}
+
+// Pressed: the same idea turned inward. Four soft gradients along the top/left (dark) and
+// bottom/right (light) edges, clipped to the shape. Used by selected chips and text fields.
+fun Modifier.insetSoft(spec: SurfaceSpec, shape: Shape, depth: Dp = spec.raise): Modifier {
+    val dark = spec.darkShadow
+    val glare = spec.lightShadow
+    if (dark == null || glare == null || depth <= 0.dp) return this
+    return this.clip(shape).drawBehind {
+        val w = depth.toPx() * 1.6f
+        val dk = dark.copy(alpha = dark.alpha * 0.85f)
+        val lg = glare.copy(alpha = glare.alpha * 0.90f)
+        drawRect(
+            brush = Brush.verticalGradient(0f to dk, 1f to Color.Transparent, startY = 0f, endY = w),
+            size = Size(size.width, w)
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(0f to dk, 1f to Color.Transparent, startX = 0f, endX = w),
+            size = Size(w, size.height)
+        )
+        drawRect(
+            brush = Brush.verticalGradient(0f to Color.Transparent, 1f to lg, startY = size.height - w, endY = size.height),
+            topLeft = Offset(0f, size.height - w),
+            size = Size(size.width, w)
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(0f to Color.Transparent, 1f to lg, startX = size.width - w, endX = size.width),
+            topLeft = Offset(size.width - w, 0f),
+            size = Size(w, size.height)
+        )
+    }
+}
+
 @Composable
 fun cardC() = CardDefaults.cardColors(
     containerColor = LocalTheme.current.card.fill,
@@ -373,42 +465,7 @@ fun AppCard(
     val shape = RoundedCornerShape(s.corner)
     val neumo = s.lightShadow != null && s.darkShadow != null && s.raise > 0.dp
     val shadowMod = when {
-        // Neumorph: two soft bands instead of one elevation shadow. Each band is drawn as
-        // a stack of thin rings whose alpha falls off outward, which looks like a blur but
-        // needs no blur filter - so it behaves the same on every phone from Android 8.
-        neumo -> Modifier.drawBehind {
-            val cr = s.corner.toPx()
-            val reach = s.raise.toPx()
-            val d = reach * 0.35f
-            val steps = 8
-            val step = reach / steps
-            val dark = s.darkShadow!!
-            val glare = s.lightShadow!!
-            // Shade toward the bottom-right.
-            for (i in steps downTo 1) {
-                val grow = step * i
-                val fade = 1f - (i - 1) / steps.toFloat()
-                drawRoundRect(
-                    color = dark.copy(alpha = dark.alpha * fade * 0.55f),
-                    topLeft = Offset(d - grow, d - grow),
-                    size = Size(size.width + grow * 2f, size.height + grow * 2f),
-                    cornerRadius = CornerRadius(cr + grow),
-                    style = Stroke(width = step * 1.6f)
-                )
-            }
-            // Glow toward the top-left.
-            for (i in steps downTo 1) {
-                val grow = step * i
-                val fade = 1f - (i - 1) / steps.toFloat()
-                drawRoundRect(
-                    color = glare.copy(alpha = glare.alpha * fade * 0.70f),
-                    topLeft = Offset(-d - grow, -d - grow),
-                    size = Size(size.width + grow * 2f, size.height + grow * 2f),
-                    cornerRadius = CornerRadius(cr + grow),
-                    style = Stroke(width = step * 1.6f)
-                )
-            }
-        }
+        neumo -> Modifier.raisedSoft(s)
         s.shadowColor != null -> Modifier.shadow(
             elevation = s.shadow,
             shape = shape,
@@ -442,8 +499,124 @@ fun AppCard(
                         )
                 )
             }
-            Column { content() }
+            CompositionLocalProvider(LocalSurfaceFill provides (fill ?: s.fill)) {
+                Column { content() }
+            }
         }
     }
 }
+
+// ---------- neumorphic widgets ----------
+// Screens call these instead of the Material component. Every style except Neumorph falls
+// straight through to plain Material 3, so the other four themes cannot regress.
+
+@Composable
+fun AppIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val t = LocalTheme.current
+    if (!t.neumorph) {
+        IconButton(onClick = onClick, modifier = modifier, enabled = enabled) { content() }
+        return
+    }
+    val s = t.card
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .raisedSoft(s, s.raise * 0.75f)
+            .background(LocalSurfaceFill.current, CircleShape)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        CompositionLocalProvider(LocalContentColor provides s.content) { content() }
+    }
+}
+
+@Composable
+fun AppChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val t = LocalTheme.current
+    if (!t.neumorph) {
+        FilterChip(selected = selected, onClick = onClick, label = label, modifier = modifier)
+        return
+    }
+    val s = t.card
+    val shape = RoundedCornerShape(50)
+    val bg = LocalSurfaceFill.current
+    val deco = if (selected) {
+        Modifier.background(bg, shape).insetSoft(s, shape, s.raise * 0.45f)
+    } else {
+        Modifier.raisedSoft(s, s.raise * 0.55f).background(bg, shape)
+    }
+    Box(
+        modifier = modifier
+            .then(deco)
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CompositionLocalProvider(
+            LocalContentColor provides (if (selected) t.scheme.primary else s.content)
+        ) {
+            ProvideTextStyle(value = MaterialTheme.typography.labelLarge) { label() }
+        }
+    }
+}
+
+@Composable
+fun AppField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+    label: @Composable (() -> Unit)? = null,
+    placeholder: @Composable (() -> Unit)? = null,
+    textStyle: TextStyle = LocalTextStyle.current
+) {
+    val t = LocalTheme.current
+    if (!t.neumorph) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            enabled = enabled,
+            label = label,
+            placeholder = placeholder,
+            textStyle = textStyle,
+            singleLine = singleLine,
+            minLines = minLines
+        )
+        return
+    }
+    // A label needs a straighter top edge to sit on, so only unlabelled fields go full pill.
+    val shape = RoundedCornerShape(if (label == null) 50 else 18)
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.insetSoft(t.card, shape, t.card.raise * 0.55f),
+        enabled = enabled,
+        label = label,
+        placeholder = placeholder,
+        textStyle = textStyle,
+        singleLine = singleLine,
+        minLines = minLines,
+        shape = shape,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent
+        )
+    )
+}
+
 

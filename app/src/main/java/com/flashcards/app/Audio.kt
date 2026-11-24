@@ -167,7 +167,7 @@ fun AudioItem(name: String, onChange: (String) -> Unit, onRemove: () -> Unit) {
                 Spacer(Modifier.weight(1f))
             }
         }
-        IconButton(onClick = {
+        AppIconButton(onClick = {
             rec.cancel(); Player.stop(); playing = false
             onRemove()
         }) { Icon(Icons.Default.Delete, contentDescription = "Delete recording") }

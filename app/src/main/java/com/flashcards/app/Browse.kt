@@ -112,7 +112,7 @@ fun HomeScreen(
             if (searchOpen) {
                 TopAppBar(
                     title = {
-                        OutlinedTextField(
+                        AppField(
                             value = q,
                             onValueChange = { q = it },
                             placeholder = { Text("Search decks and cards") },
@@ -121,18 +121,18 @@ fun HomeScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = { searchOpen = false; q = "" }) {
+                        AppIconButton(onClick = { searchOpen = false; q = "" }) {
                             Icon(Icons.Default.Close, contentDescription = "Close search")
                         }
                     }
                 )
             } else {
                 TopAppBar(title = { Text("My Decks") }, actions = {
-                    IconButton(onClick = { searchOpen = true }) {
+                    AppIconButton(onClick = { searchOpen = true }) {
                         Icon(Icons.Default.Search, contentDescription = "Search")
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                        AppIconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; openSettings() })
                             DropdownMenuItem(text = { Text("Help") }, onClick = { menu = false; openHelp() })
@@ -181,7 +181,7 @@ fun HomeScreen(
                                 Text("${d.total} cards  ·  ${d.due + d.fresh} to study  (${d.fresh} new, ${d.due} due)")
                             }
                             Box {
-                                IconButton(onClick = { tileMenu = d.id }) { Icon(Icons.Default.MoreVert, contentDescription = "Deck menu") }
+                                AppIconButton(onClick = { tileMenu = d.id }) { Icon(Icons.Default.MoreVert, contentDescription = "Deck menu") }
                                 DropdownMenu(expanded = tileMenu == d.id, onDismissRequest = { tileMenu = 0L }) {
                                     DropdownMenuItem(text = { Text("Browse / edit cards") }, onClick = { tileMenu = 0L; open(d.id) })
                                     DropdownMenuItem(text = { Text("Rename") }, onClick = { tileMenu = 0L; renameText = d.name; renameTarget = d })
@@ -204,7 +204,7 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename deck") },
-            text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true) },
+            text = { AppField(renameText, { renameText = it }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
                     if (renameText.isNotBlank()) scope.launch { dao.renameDeck(t.id, renameText.trim()) }
@@ -230,7 +230,7 @@ fun HomeScreen(
     if (dialog) AlertDialog(
         onDismissRequest = { dialog = false },
         title = { Text("New deck") },
-        text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+        text = { AppField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
         confirmButton = {
             TextButton(onClick = {
                 if (name.isNotBlank()) scope.launch { dao.insertDeck(Deck(name = name.trim())) }
@@ -321,11 +321,11 @@ fun DeckScreen(
         if (selecting) {
             TopAppBar(
                 title = { Text("${selected.size} selected") },
-                navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Cancel selection") } },
+                navigationIcon = { AppIconButton(onClick = { selected = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Cancel selection") } },
                 actions = {
                     TextButton(onClick = { selected = cards.map { it.id }.toSet() }) { Text("All") }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Actions") }
+                        AppIconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Actions") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("⭐ Favorite") }, onClick = { menu = false; runBulk("Favorited") { Bulk.setFav(db, it, 1) } })
                             DropdownMenuItem(text = { Text("🔖 Bookmark") }, onClick = { menu = false; runBulk("Bookmarked") { Bulk.setBookmark(db, it, 1) } })
@@ -349,7 +349,7 @@ fun DeckScreen(
                 navigationIcon = { BackIcon(back) },
                 actions = {
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                        AppIconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             if (q.isNotBlank()) DropdownMenuItem(text = { Text("Export TSV of these results") }, onClick = {
                                 menu = false; exportIds = cards.map { it.id }; exportIdsL.launch("cards.tsv")
@@ -381,7 +381,7 @@ fun DeckScreen(
                             }
                         }
                     }
-                    if (deckId != 0L) IconButton(onClick = { confirmDeleteDeck = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete deck") }
+                    if (deckId != 0L) AppIconButton(onClick = { confirmDeleteDeck = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete deck") }
                 }
             )
         }
@@ -396,7 +396,7 @@ fun DeckScreen(
                         Text("Cards per study set", style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(10, 20, 30, 50, 0).forEach { n ->
-                                FilterChip(
+                                AppChip(
                                     selected = setSize == n,
                                     onClick = { AppSettings.sessionSize = n; AppSettings.save(ctx) },
                                     label = { Text(if (n == 0) "All" else "$n") }
@@ -419,12 +419,12 @@ fun DeckScreen(
                     OutlinedButton(onClick = { newInk(deckId) }) { Text("✍ Pen card") }
                 }
             }
-            OutlinedTextField(q, { q = it }, label = { Text("Search, or use the filters below") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            AppField(q, { q = it }, label = { Text("Search, or use the filters below") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             val quick = listOf("favorite", "bookmarked", "suspended", "state:new", "state:learning", "state:review", "due", "overdue", "has:image", "has:audio", "added:today", "added:7d", "added:30d")
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = newest, onClick = { newest = !newest }, label = { Text("↓ Newest first") })
+                AppChip(selected = newest, onClick = { newest = !newest }, label = { Text("↓ Newest first") })
                 listOf<String>().plus(quick).plus(allTags.map { "tag:" + it.trimStart('#') }).forEach { t ->
-                    FilterChip(selected = CardSearch.has(q, t), onClick = { q = CardSearch.toggle(q, t) }, label = { Text(t) })
+                    AppChip(selected = CardSearch.has(q, t), onClick = { q = CardSearch.toggle(q, t) }, label = { Text(t) })
                 }
             }
             Text("${cards.size} cards shown" + (if (selecting) "  ·  long-press to select more" else "  ·  long-press a card to select"), style = MaterialTheme.typography.labelSmall)
@@ -447,7 +447,7 @@ fun DeckScreen(
     if (renaming) AlertDialog(
         onDismissRequest = { renaming = false },
         title = { Text("Rename deck") },
-        text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true) },
+        text = { AppField(renameText, { renameText = it }, singleLine = true) },
         confirmButton = {
             TextButton(onClick = {
                 if (renameText.isNotBlank()) scope.launch { dao.renameDeck(deckId, renameText.trim()) }
@@ -478,7 +478,7 @@ fun DeckScreen(
     if (tagDialog != 0) AlertDialog(
         onDismissRequest = { tagDialog = 0 },
         title = { Text(if (tagDialog == 1) "Add tag to ${selected.size} cards" else "Remove tag from ${selected.size} cards") },
-        text = { OutlinedTextField(tagText, { tagText = it }, label = { Text("Tag, e.g. class-12") }, singleLine = true) },
+        text = { AppField(tagText, { tagText = it }, label = { Text("Tag, e.g. class-12") }, singleLine = true) },
         confirmButton = {
             TextButton(onClick = {
                 val t = tagText

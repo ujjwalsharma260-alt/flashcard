@@ -325,10 +325,10 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            IconButton(onClick = { if (undo.isNotEmpty() || redo.isNotEmpty()) confirmClose = true else onCancel() }) {
+            AppIconButton(onClick = { if (undo.isNotEmpty() || redo.isNotEmpty()) confirmClose = true else onCancel() }) {
                 Icon(Icons.Default.Close, contentDescription = "Discard")
             }
-            IconButton(onClick = { onDone(Ink.serialize(InkDoc(doc0.w, pageH(cvs.width, cvs.height), strokes))) }) {
+            AppIconButton(onClick = { onDone(Ink.serialize(InkDoc(doc0.w, pageH(cvs.width, cvs.height), strokes))) }) {
                 Icon(Icons.Default.Check, contentDescription = "Done")
             }
             TextButton(enabled = undo.isNotEmpty(), onClick = {
@@ -341,8 +341,8 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
                 undo.add(strokes)
                 strokes = nxt
             }) { Text("Redo ↷") }
-            FilterChip(selected = tool == 0, onClick = { tool = 0 }, label = { Text("✏ Pen") })
-            FilterChip(selected = tool == 1, onClick = { tool = 1 }, label = { Text("⌫ Eraser") })
+            AppChip(selected = tool == 0, onClick = { tool = 0 }, label = { Text("✏ Pen") })
+            AppChip(selected = tool == 1, onClick = { tool = 1 }, label = { Text("⌫ Eraser") })
             for (ci in 0..3) {
                 Box(
                     Modifier.size(30.dp).clip(CircleShape).background(colorOf(ci, fg))
@@ -351,7 +351,7 @@ private fun InkEditorContent(initial: String, onDone: (String) -> Unit, onCancel
                 )
             }
             listOf("S", "M", "L").forEachIndexed { i, l ->
-                FilterChip(selected = widthIdx == i, onClick = { widthIdx = i; tool = 0 }, label = { Text(l) })
+                AppChip(selected = widthIdx == i, onClick = { widthIdx = i; tool = 0 }, label = { Text(l) })
             }
             TextButton(enabled = strokes.isNotEmpty(), onClick = {
                 val before = strokes
