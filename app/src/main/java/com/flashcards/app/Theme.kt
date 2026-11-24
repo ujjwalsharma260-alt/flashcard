@@ -15,14 +15,19 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 val baseNames = listOf("Dark", "Light")
-val styleNames = listOf("Plain", "Colorful", "Liquid", "Clay")
+val styleNames = listOf("Plain", "Colorful", "Liquid", "Clay", "Neumorph")
 
 // Accent colours offered in Settings. 0L = "Auto" (uses a soft purple default).
 val accentPalette: List<Pair<String, Long>> = listOf(
@@ -94,7 +99,17 @@ private fun palette(bg: Long, surface: Long, variant: Long, on: Long, primary: L
 // accent: Long (0L = Auto purple)
 fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorScheme {
     val t = intensity.coerceIn(0, 100) / 100f
-    val accentColor = if (accent == 0L) Color(0xFFB388FF) else Color(accent)
+    val neumo = style == 4
+    // Neumorph lives on a pale grey sheet, so a pastel accent would disappear on it.
+    // Its own default is the saturated blue from the reference sheets.
+    val rawAccent = when {
+        accent != 0L -> Color(accent)
+        neumo -> Color(0xFF3A6BF0)
+        else -> Color(0xFFB388FF)
+    }
+    // Pale accents (yellow, mint, pink) are darkened on a light base so white button text
+    // still reads. Dark bases keep exactly the accent the user picked.
+    val accentColor = if (base == 1 && neumo) readableAccent(rawAccent) else rawAccent
     val accentSoft = Color(
         red = accentColor.red * 0.55f + 0.1f,
         green = accentColor.green * 0.55f + 0.1f,
@@ -107,26 +122,46 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             1 -> Color(0xFFF5F3FF)
             2 -> Color(0xFFF0F4F8)
             3 -> Color(0xFFF1EAE3)
+            4 -> Color(0xFFE4E7EE)
             else -> Color(0xFFFAFAFA)
         }
         val surface = when (style) {
             2 -> Color(0xFFF8FAFC)
             3 -> Color(0xFFFBF5EF)
+            // Neumorph: the bar and the page are one sheet, so nothing has a visible band.
+            4 -> Color(0xFFE4E7EE)
             else -> Color.White
         }
         val variant = when (style) {
             1 -> Color(0xFFEDE7F6)
             2 -> Color(0xFFE3E9F0)
             3 -> Color(0xFFFFE3D3)
+            // Neumorph: cards sit a tiny step lighter than the page - that is the "raised".
+            4 -> Color(0xFFEAEDF4)
             else -> Color(0xFFEFEFEF)
         }
         // Clay uses warm brown ink instead of near-black, so the pastel fills do not glare.
-        val ink = if (style == 3) Color(0xFF3A2E27) else Color(0xFF1A1A1A)
-        val inkSoft = if (style == 3) Color(0xFF5C4033) else Color(0xFF2A2A2A)
-        val line = if (style == 3) Color(0xFFD9C7B8) else Color(0xFFCCCCCC)
+        val ink = when (style) {
+            3 -> Color(0xFF3A2E27)
+            4 -> Color(0xFF3B414D)
+            else -> Color(0xFF1A1A1A)
+        }
+        val inkSoft = when (style) {
+            3 -> Color(0xFF5C4033)
+            4 -> Color(0xFF6B7280)
+            else -> Color(0xFF2A2A2A)
+        }
+        val line = when (style) {
+            3 -> Color(0xFFD9C7B8)
+            4 -> Color(0xFFD5DAE3)
+            else -> Color(0xFFCCCCCC)
+        }
+        // FABs and selected rows read as pale raised pills with accent text.
+        val raised = if (neumo) Color(0xFFF2F5FA) else variant
+        val onRaised = if (neumo) accentColor else ink
         lightColorScheme(
             primary = accentColor, onPrimary = Color.White,
-            primaryContainer = variant, onPrimaryContainer = ink,
+            primaryContainer = raised, onPrimaryContainer = onRaised,
             secondary = accentSoft, onSecondary = Color.White,
             background = bg, onBackground = ink,
             surface = surface, onSurface = ink,
@@ -134,7 +169,7 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             outline = line, outlineVariant = variant,
             tertiary = accentColor, onTertiary = Color.White,
             tertiaryContainer = variant, onTertiaryContainer = ink,
-            surfaceTint = accentColor,
+            surfaceTint = if (neumo) surface else accentColor,
             inverseSurface = Color(0xFF303030), inverseOnSurface = Color(0xFFF5F5F5),
             inversePrimary = accentColor,
             error = Color(0xFFB3261E), onError = Color.White,
@@ -147,26 +182,43 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             1 -> Color(0xFF0A0A12)
             2 -> Color(0xFF0D1015)
             3 -> Color(0xFF2A2320)
+            4 -> Color(0xFF22252C)
             else -> Color(0xFF121212)
         }
         val surface = when (style) {
             1 -> Color(0xFF15151E)
             2 -> Color(0xFF161A20)
             3 -> Color(0xFF332B27)
+            4 -> Color(0xFF22252C)
             else -> Color(0xFF1C1C1C)
         }
         val variant = when (style) {
             1 -> Color(0xFF23222E)
             2 -> Color(0xFF212630)
             3 -> Color(0xFF3F342E)
+            4 -> Color(0xFF2A2E37)
             else -> Color(0xFF2A2A2A)
         }
-        val ink = if (style == 3) Color(0xFFF3EAE3) else Color(0xFFECECEC)
-        val inkSoft = if (style == 3) Color(0xFFE0D2C8) else Color(0xFFD6D6D6)
-        val line = if (style == 3) Color(0xFF5A4B41) else Color(0xFF3A3A3A)
+        val ink = when (style) {
+            3 -> Color(0xFFF3EAE3)
+            4 -> Color(0xFFE7E9EE)
+            else -> Color(0xFFECECEC)
+        }
+        val inkSoft = when (style) {
+            3 -> Color(0xFFE0D2C8)
+            4 -> Color(0xFFB4B9C4)
+            else -> Color(0xFFD6D6D6)
+        }
+        val line = when (style) {
+            3 -> Color(0xFF5A4B41)
+            4 -> Color(0xFF3A3F4A)
+            else -> Color(0xFF3A3A3A)
+        }
+        val raised = if (neumo) Color(0xFF2E323B) else variant
+        val onRaised = if (neumo) accentColor else ink
         darkColorScheme(
             primary = accentColor, onPrimary = Color.White,
-            primaryContainer = variant, onPrimaryContainer = ink,
+            primaryContainer = raised, onPrimaryContainer = onRaised,
             secondary = accentSoft, onSecondary = Color.White,
             background = bg, onBackground = ink,
             surface = surface, onSurface = ink,
@@ -174,7 +226,7 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
             outline = line, outlineVariant = variant,
             tertiary = accentColor, onTertiary = Color(0xFF111111),
             tertiaryContainer = variant, onTertiaryContainer = ink,
-            surfaceTint = accentColor,
+            surfaceTint = if (neumo) surface else accentColor,
             inverseSurface = Color(0xFFECECEC), inverseOnSurface = Color(0xFF1A1A1A),
             inversePrimary = accentColor,
             error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
@@ -183,6 +235,14 @@ fun buildScheme(base: Int, style: Int, intensity: Int, accent: Long): ColorSchem
         )
     }
 }
+
+// Keeps a picked accent readable on a pale sheet: only genuinely light colours are
+// darkened, so blue/red/orange are left exactly as chosen.
+private fun readableAccent(c: Color): Color {
+    val lum = 0.2126f * c.red + 0.7152f * c.green + 0.0722f * c.blue
+    return if (lum > 0.55f) Color(c.red * 0.72f, c.green * 0.72f, c.blue * 0.72f) else c
+}
+
 
 // ---- design tokens ----
 // A theme is data, not if/else in the screens. Step 1 keeps the exact same values the
@@ -197,7 +257,13 @@ data class SurfaceSpec(
     val shadow: Dp = 1.dp,
     val shadowColor: Color? = null,   // tinted shadow; Android 9+ only, older phones use grey
     val blur: Boolean = false,        // glass only, and only on Android 12+
-    val innerLight: Boolean = false   // clay only (the puffy highlight)
+    val innerLight: Boolean = false,  // clay only (the puffy highlight)
+    // Neumorph only: a dark shade bottom-right plus a light glow top-left. When both are
+    // set, AppCard draws them itself instead of using Modifier.shadow.
+    val darkShadow: Color? = null,
+    val lightShadow: Color? = null,
+    val raise: Dp = 0.dp,             // how far the two soft shadows reach out
+    val sheen: Float = 0f             // strength of the white highlight on top (0 = none)
 )
 
 data class AppThemeSpec(
@@ -228,22 +294,47 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
     val baseName = if (base == 1) "Light" else "Dark"
     val styleName = styleNames.getOrNull(style) ?: "Plain"
     val clay = style == 3
+    val neumo = style == 4
+    val light = base == 1
     // Clay: rounder everything, a soft warm shadow and a light edge. All of this is
     // ordinary drawing — no Android 12 features — so it works on every supported phone.
-    val edge = if (base == 1) Color(0x99FFFFFF) else Color(0x1FFFFFFF)
+    val edge = if (light) Color(0x99FFFFFF) else Color(0x1FFFFFFF)
     return AppThemeSpec(
         id = "b" + base + "_s" + style,
         name = baseName + " " + styleName,
         scheme = scheme,
-        shapes = themeShapes(if (clay) cornerScale * 1.25f else cornerScale),
+        shapes = themeShapes(
+            when {
+                neumo -> cornerScale * 1.15f
+                clay -> cornerScale * 1.25f
+                else -> cornerScale
+            }
+        ),
         card = SurfaceSpec(
             fill = scheme.surfaceVariant,
             content = scheme.onSurfaceVariant,
             border = if (clay) edge else null,
-            corner = (if (clay) 28.dp else 12.dp) * cornerScale,
-            shadow = if (clay) 10.dp else 1.dp,
+            corner = when {
+                neumo -> 22.dp * cornerScale
+                clay -> 28.dp * cornerScale
+                else -> 12.dp * cornerScale
+            },
+            shadow = when {
+                neumo -> 0.dp
+                clay -> 10.dp
+                else -> 1.dp
+            },
             shadowColor = if (clay) Color(0xFF9C7A5E) else null,
-            innerLight = clay
+            innerLight = clay,
+            // Neumorph keeps the platform shadow at zero and draws its own pair instead.
+            darkShadow = if (neumo) {
+                if (light) Color(0x66A6AFC4) else Color(0xB3000000)
+            } else null,
+            lightShadow = if (neumo) {
+                if (light) Color(0xE6FFFFFF) else Color(0x1FFFFFFF)
+            } else null,
+            raise = if (neumo) 12.dp else 0.dp,
+            sheen = if (neumo) (if (light) 0.30f else 0.10f) else 0f
         ),
         dialog = SurfaceSpec(
             fill = scheme.surface,
@@ -257,6 +348,7 @@ fun themeSpec(base: Int, style: Int, intensity: Int, accent: Long, cornerScale: 
         onMedia = Color.White
     )
 }
+
 
 // Set once in MainActivity; any screen can read LocalTheme.current.card etc.
 val LocalTheme = staticCompositionLocalOf { themeSpec(0, 0, 70, 0L) }
@@ -279,16 +371,52 @@ fun AppCard(
 ) {
     val s = LocalTheme.current.card
     val shape = RoundedCornerShape(s.corner)
-    val shadowMod = if (s.shadowColor != null) {
-        Modifier.shadow(
+    val neumo = s.lightShadow != null && s.darkShadow != null && s.raise > 0.dp
+    val shadowMod = when {
+        // Neumorph: two soft bands instead of one elevation shadow. Each band is drawn as
+        // a stack of thin rings whose alpha falls off outward, which looks like a blur but
+        // needs no blur filter - so it behaves the same on every phone from Android 8.
+        neumo -> Modifier.drawBehind {
+            val cr = s.corner.toPx()
+            val reach = s.raise.toPx()
+            val d = reach * 0.35f
+            val steps = 8
+            val step = reach / steps
+            val dark = s.darkShadow!!
+            val glare = s.lightShadow!!
+            // Shade toward the bottom-right.
+            for (i in steps downTo 1) {
+                val grow = step * i
+                val fade = 1f - (i - 1) / steps.toFloat()
+                drawRoundRect(
+                    color = dark.copy(alpha = dark.alpha * fade * 0.55f),
+                    topLeft = Offset(d - grow, d - grow),
+                    size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                    cornerRadius = CornerRadius(cr + grow),
+                    style = Stroke(width = step * 1.6f)
+                )
+            }
+            // Glow toward the top-left.
+            for (i in steps downTo 1) {
+                val grow = step * i
+                val fade = 1f - (i - 1) / steps.toFloat()
+                drawRoundRect(
+                    color = glare.copy(alpha = glare.alpha * fade * 0.70f),
+                    topLeft = Offset(-d - grow, -d - grow),
+                    size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                    cornerRadius = CornerRadius(cr + grow),
+                    style = Stroke(width = step * 1.6f)
+                )
+            }
+        }
+        s.shadowColor != null -> Modifier.shadow(
             elevation = s.shadow,
             shape = shape,
             clip = false,
             ambientColor = s.shadowColor,
             spotColor = s.shadowColor
         )
-    } else {
-        Modifier.shadow(elevation = s.shadow, shape = shape, clip = false)
+        else -> Modifier.shadow(elevation = s.shadow, shape = shape, clip = false)
     }
     Surface(
         modifier = modifier.then(shadowMod),
@@ -299,15 +427,16 @@ fun AppCard(
         border = s.border?.let { BorderStroke(1.dp, it) }
     ) {
         Box {
-            if (s.innerLight) {
-                // Clay's puffy look: a soft white glow that fades out down the card.
+            if (s.innerLight || s.sheen > 0f) {
+                // Puffy top edge: clay's white glow, or neumorph's softer sheen.
+                val a = if (s.sheen > 0f) s.sheen else 0.40f
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(
                             Brush.verticalGradient(
-                                0f to Color.White.copy(alpha = 0.40f),
-                                0.42f to Color.White.copy(alpha = 0.05f),
+                                0f to Color.White.copy(alpha = a),
+                                0.42f to Color.White.copy(alpha = a * 0.12f),
                                 1f to Color.Transparent
                             )
                         )
@@ -317,3 +446,4 @@ fun AppCard(
         }
     }
 }
+

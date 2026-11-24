@@ -23,7 +23,7 @@ object AppSettings {
 
     // new appearance system
     var base by mutableStateOf(0)        // 0 Dark, 1 Light
-    var style by mutableStateOf(0)       // 0 Plain, 1 Colorful, 2 Liquid
+    var style by mutableStateOf(0)       // 0 Plain, 1 Colorful, 2 Liquid, 3 Clay, 4 Neumorph
     var intensity by mutableStateOf(70)  // 0..100
     var accent by mutableStateOf(0L)     // 0L = auto; else ARGB
 
@@ -131,11 +131,12 @@ fun SettingsContent() {
             "Plain: flat, calm surfaces — the cleanest option.\n" +
                 "Colorful: each deck tile gets its own vivid gradient, and the background has soft glowing blobs.\n" +
                 "Liquid: frosted glass panels over a soft blurred background — modern and calm.\n" +
-                "Clay: soft pastel panels, very round corners and a gentle 3D edge — playful and tactile. Works on every Android version."
+                "Clay: soft pastel panels, very round corners and a gentle 3D edge — playful and tactile. Works on every Android version.\n" +
+                "Neumorph: soft grey-blue buttons that look pressed out of the page. Best with the Light base; the Dark base gives a soft charcoal version. Works on every Android version."
         ) {
             Choices(styleNames.mapIndexed { i, n -> n to i }, s.style) { v -> changed { s.style = v } }
             Text(
-                "Engine: tokens v3 — active theme: " + themeSpec(s.base, s.style, s.intensity, s.accent).name,
+                "Engine: tokens v4 — active theme: " + themeSpec(s.base, s.style, s.intensity, s.accent).name,
                 style = MaterialTheme.typography.labelSmall
             )
         }

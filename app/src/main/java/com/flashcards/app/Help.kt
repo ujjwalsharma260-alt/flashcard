@@ -167,7 +167,7 @@ private val helpSections: List<Pair<String, String>> = listOf(
         "Card turn animation - smooth fade, 3D flip, or none.\n" +
         "Reset all settings - puts everything back as it was.\n" +
         "How you answer - swipe or buttons.\n" +
-        "Theme - System, Light, or five calm dark themes: Charcoal, Slate, Sand, Forest, Plum.\n" +
+        "Theme - choose Dark or Light first, then a style: Plain, Colorful, Liquid, Clay or Neumorph. Neumorph looks best with Light and is the soft raised-button look.\n" +
         "Card border - a thin rounded line around the study card.\n" +
         "While studying, tap the gear in the top corner to change these without leaving.",
 
