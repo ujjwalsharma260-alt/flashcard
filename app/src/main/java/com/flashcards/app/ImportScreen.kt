@@ -22,7 +22,7 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
     val scope = rememberCoroutineScope()
     val delim = remember(text) { Tsv.detectDelimiter(text) }
     val rows = remember(text, delim) { Tsv.parse(text, delim) }
-    var skipHeader by remember(text) { mutableStateOf(rows.isNotEmpty() && Tsv.looksLikeHeader(rows[0])) }
+    var skipHeader by remember(text) { mutableStateOf(Tsv.looksLikeHeader(rows)) }
     val result = remember(rows, skipHeader) { Tsv.analyze(rows, skipHeader) }
     val deckFlow = remember { dao.decks(0L) }
     val decks by deckFlow.collectAsState(emptyList())
@@ -30,6 +30,7 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
     var newName by remember { mutableStateOf("Imported") }
     var menu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var showAll by remember(text) { mutableStateOf(false) }
     val foundSeparator = text.contains('\t') || delim != '\t'
 
     Scaffold(topBar = {
@@ -65,27 +66,66 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
             }
 
             Spacer(Modifier.height(8.dp))
+            if (result.ignored > 0) {
+                Text(
+                    "Ignored ${result.ignored} formatting line" + (if (result.ignored == 1) "" else "s") + " (``` fences, table rules).",
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
             if (result.cards.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cards to import (${result.cards.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    if (result.cards.size > 20) {
+                        TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show less" else "Show all ${result.cards.size}") }
+                    }
+                }
                 Row(Modifier.fillMaxWidth()) {
                     for (c in 1..result.maxCols) Text("Face $c", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                 }
                 HorizontalDivider()
-                result.cards.take(20).forEach { cells ->
+                val visible = if (showAll) result.cards else result.cards.take(20)
+                visible.forEach { cells ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         for (c in 0 until result.maxCols) {
                             Text(cells.getOrElse(c) { "" }, Modifier.weight(1f).padding(end = 4.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
-                if (result.cards.size > 20) Text("… and ${result.cards.size - 20} more", style = MaterialTheme.typography.labelMedium)
+                if (!showAll && result.cards.size > 20) Text("… and ${result.cards.size - 20} more", style = MaterialTheme.typography.labelMedium)
             }
 
             if (result.bad.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Text("${result.cards.size} valid cards", style = MaterialTheme.typography.titleMedium)
-                Text("${result.bad.size} problematic rows (skipped):", color = MaterialTheme.colorScheme.error)
-                result.bad.take(20).forEach { (line, why) -> Text("Row $line: $why") }
-                if (result.bad.size > 20) Text("… and ${result.bad.size - 20} more")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${result.bad.size} row" + (if (result.bad.size == 1) "" else "s") + " skipped",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = {
+                        copyToClipboard(ctx, result.bad.joinToString("\n") { it.cells.joinToString("\t") })
+                        toast(ctx, "Skipped rows copied")
+                    }) { Text("Copy") }
+                }
+                Text(
+                    "These rows were not imported. Each needs 2 to 5 columns separated by a Tab. Fix them and paste again, or import the good cards now.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                result.bad.take(200).forEach { b ->
+                    AppCard(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text("Row ${b.line} · ${b.why}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                            Text(
+                                b.cells.filter { it.isNotBlank() }.joinToString("  |  ").ifBlank { "(empty)" },
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                if (result.bad.size > 200) Text("… and ${result.bad.size - 200} more (Copy gets all of them)", style = MaterialTheme.typography.labelMedium)
             }
 
             Spacer(Modifier.height(16.dp))

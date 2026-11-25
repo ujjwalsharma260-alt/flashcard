@@ -2,7 +2,17 @@ package com.flashcards.app
 
 object Tsv {
     data class Row(val line: Int, val cells: List<String>)
-    data class Analysis(val cards: List<List<String>>, val bad: List<Pair<Int, String>>, val maxCols: Int)
+
+    /** A row that was not imported, with the text it had, so the screen can show it back. */
+    data class BadRow(val line: Int, val why: String, val cells: List<String>)
+
+    data class Analysis(
+        val cards: List<List<String>>,
+        val bad: List<BadRow>,
+        val maxCols: Int,
+        /** Formatting lines (code fences, markdown table rules) that were dropped silently. */
+        val ignored: Int = 0
+    )
 
     /**
      * Picks the column separator. Tab wins if present anywhere.
@@ -79,26 +89,53 @@ object Tsv {
         return filled.isNotEmpty() && filled.all { headerWords.matches(it.trim()) }
     }
 
+    /** Header test that skips format noise (a code fence above the table is common). */
+    fun looksLikeHeader(rows: List<Row>): Boolean =
+        rows.firstOrNull { !isNoise(it.cells) }?.let { looksLikeHeader(it) } ?: false
+
+    /**
+     * True for lines that are formatting, not cards: ``` code fences (often wrapping the
+     * table an AI returns) and markdown table rules such as |---|---|. Dropping these is why
+     * a paste straight from a chat no longer reports two "problematic rows".
+     */
+    private fun isNoise(cells: List<String>): Boolean {
+        val filled = cells.map { it.trim() }.filter { it.isNotEmpty() }
+        if (filled.isEmpty()) return true
+        if (filled.size == 1 && filled[0].startsWith("```")) return true
+        val joined = filled.joinToString("").filterNot { it.isWhitespace() }
+        return joined.isNotEmpty() && joined.all { it == '-' || it == '|' || it == ':' }
+    }
+
     fun analyze(rows: List<Row>, skipHeader: Boolean): Analysis {
         val cards = ArrayList<List<String>>()
-        val bad = ArrayList<Pair<Int, String>>()
+        val bad = ArrayList<BadRow>()
         var maxCols = 2
-        rows.forEachIndexed { idx, r ->
-            if (idx == 0 && skipHeader) return@forEachIndexed
+        var ignored = 0
+        // The header is the first real row, not necessarily the first line (a fence may be above it).
+        var headerPending = skipHeader
+        rows.forEach { r ->
             val cells = r.cells.map { it.trim() }
-            if (cells.all { it.isEmpty() }) return@forEachIndexed
+            if (cells.all { it.isEmpty() }) return@forEach
+            if (isNoise(cells)) {
+                ignored++
+                return@forEach
+            }
+            if (headerPending) {
+                headerPending = false
+                return@forEach
+            }
             var n = cells.size
             while (n > 0 && cells[n - 1].isEmpty()) n--
-            if (cells.size < 2) {
-                bad.add(Pair(r.line, "Only 1 column (cards need 2 to 5 columns separated by Tab, or by \" | \")"))
+            if (n < 2) {
+                bad.add(BadRow(r.line, "Only 1 column (a card needs 2 to 5 columns separated by Tab, or by \" | \")", cells))
             } else if (n > 5) {
-                bad.add(Pair(r.line, "More than 5 columns"))
+                bad.add(BadRow(r.line, "More than 5 columns", cells))
             } else {
                 cards.add(cells.take(5))
                 maxCols = maxOf(maxCols, minOf(n, 5))
             }
         }
-        return Analysis(cards, bad, maxCols)
+        return Analysis(cards, bad, maxCols, ignored)
     }
 
     /** A cell that is entirely $$...$$ becomes an editable formula item; anything else is kept exactly as text. */
