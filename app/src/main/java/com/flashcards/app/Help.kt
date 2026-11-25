@@ -201,7 +201,7 @@ fun HelpScreen(back: () -> Unit) {
     val shown = helpSections.withIndex().filter { q.isEmpty() || it.value.first.contains(q, true) || it.value.second.contains(q, true) }
     Scaffold(topBar = { TopAppBar(title = { Text("Help") }, navigationIcon = { BackIcon(back) }) }) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 14.dp).verticalScroll(rememberScrollState())) {
-            AppField(
+            OutlinedTextField(
                 query, { query = it }, singleLine = true, label = { Text("Search the help (for example: swipe, formula, backup)") },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             )

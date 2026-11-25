@@ -61,7 +61,7 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
                 }
             }
             if (target == 0L) {
-                AppField(newName, { newName = it }, label = { Text("New deck name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(newName, { newName = it }, label = { Text("New deck name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
 
             Spacer(Modifier.height(8.dp))

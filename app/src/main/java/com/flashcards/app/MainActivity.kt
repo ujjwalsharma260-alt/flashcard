@@ -38,10 +38,7 @@ class MainActivity : ComponentActivity() {
             val accent = AppSettings.accent
             val dark = base == 0
             val spec = remember(base, style, intensity, accent) { themeSpec(base, style, intensity, accent) }
-            CompositionLocalProvider(
-                LocalTheme provides spec,
-                LocalSurfaceFill provides spec.scheme.background
-            ) {
+            CompositionLocalProvider(LocalTheme provides spec) {
                 MaterialTheme(colorScheme = spec.scheme, shapes = spec.shapes) {
                     Surface(Modifier.fillMaxSize()) {
                         AppRoot(db, dark, 0) { /* legacy onTheme unused */ }

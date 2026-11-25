@@ -107,7 +107,7 @@ fun normTags(s: String): String =
 
 @Composable
 fun BackIcon(onClick: () -> Unit) {
-    AppIconButton(onClick = onClick) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+    IconButton(onClick = onClick) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
 }
 
 // ---------- root ----------
@@ -264,14 +264,14 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
             title = { Text(if (cardId == 0L) "New card" else "Edit card") },
             navigationIcon = { BackIcon(back) },
             actions = {
-                AppIconButton(onClick = {
+                IconButton(onClick = {
                     val nv = !bookmark
                     bookmark = nv
                     if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(bookmark = if (nv) 1 else 0)) } }
                 }) {
                     Text("🔖", modifier = Modifier.alpha(if (bookmark) 1f else 0.35f))
                 }
-                AppIconButton(onClick = {
+                IconButton(onClick = {
                     val nv = !fav
                     fav = nv
                     if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(fav = if (nv) 1 else 0)) } }
@@ -279,7 +279,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                     Icon(Icons.Default.Star, contentDescription = "Favorite", tint = if (fav) LocalTheme.current.favorite else LocalContentColor.current)
                 }
                 Box {
-                    AppIconButton(onClick = { editMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                    IconButton(onClick = { editMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
                     DropdownMenu(expanded = editMenu, onDismissRequest = { editMenu = false }) {
                         DropdownMenuItem(text = { Text(if (susp) "Unsuspend card" else "Suspend card") }, onClick = {
                             editMenu = false
@@ -299,7 +299,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                         }
                     }
                 }
-                AppIconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "Save") }
+                IconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "Save") }
             }
         )
     }) { pad ->
@@ -344,27 +344,27 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                         Box(Modifier.weight(1f).padding(vertical = 4.dp).clickable { inkEdit = i }) {
                             InkView(e.data, Modifier.fillMaxWidth().height(260.dp), placeholder = true, fit = true)
                         }
-                        AppIconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
+                        IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove handwriting")
                         }
                     }
                 } else if (e.type == "IMAGE") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ImageThumb(e.data, Modifier.weight(1f).heightIn(max = 160.dp).padding(vertical = 4.dp), onClick = { zoom = e.data })
-                        AppIconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
+                        IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove image")
                         }
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppField(
+                        OutlinedTextField(
                             value = e.data,
                             onValueChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = e.copy(data = nv) }) },
                             label = { Text(if (e.type == "LATEX") "Formula: paste LaTeX here" else "Text (pasted LaTeX also shows as maths)") },
                             textStyle = if (e.type == "LATEX") MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }
                         )
-                        AppIconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
+                        IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove")
                         }
                     }
@@ -390,7 +390,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                 cur.filter { (it.type == "TEXT" || it.type == "LATEX") && it.data.isNotBlank() }.map { it.type to it.data },
                 dark, Modifier.fillMaxWidth().height(180.dp)
             )
-            AppField(tags, { tags = it; dirty = true }, label = { Text("Tags (e.g. #physics #mechanics)") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(tags, { tags = it; dirty = true }, label = { Text("Tags (e.g. #physics #mechanics)") }, modifier = Modifier.fillMaxWidth())
             err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(32.dp))
         }

@@ -315,7 +315,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             actions = {
                 TextButton(onClick = { showGuide = true }) { Text("Guide") }
                 Box {
-                    AppIconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                    IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                     DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                         DropdownMenuItem(text = { Text("Export all to file") }, onClick = { topMenu = false; exportL.launch("kolbs-backup.json") })
                         DropdownMenuItem(text = { Text("Import from file") }, onClick = { topMenu = false; importL.launch(arrayOf("*/*")) })
@@ -358,7 +358,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
                                 Text(r.a["what"].orEmpty().ifBlank { "(no title yet)" }.take(120), maxLines = 2)
                             }
                             Box {
-                                AppIconButton(onClick = { menuId = r.id }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                                IconButton(onClick = { menuId = r.id }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                                 DropdownMenu(expanded = menuId == r.id, onDismissRequest = { menuId = 0L }) {
                                     DropdownMenuItem(text = { Text("Open / edit") }, onClick = { menuId = 0L; open(r.id) })
                                     DropdownMenuItem(text = { Text("Follow up on this experiment") }, onClick = { menuId = 0L; newReflection(r.id) })
@@ -401,7 +401,7 @@ private fun KField(label: String, hint: String, value: String, onChange: (String
     Column(Modifier.padding(vertical = 8.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Text(hint, style = MaterialTheme.typography.labelSmall)
-        AppField(value, onChange, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth(), minLines = 3)
     }
 }
 
@@ -488,8 +488,8 @@ fun KolbEditScreen(id: Long, followOf: Long, back: () -> Unit) {
                         modifier = Modifier.padding(top = 8.dp)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppChip(selected = link == 0L, onClick = { link = 0L }, label = { Text("No") })
-                        AppChip(selected = link != 0L, onClick = {
+                        FilterChip(selected = link == 0L, onClick = { link = 0L }, label = { Text("No") })
+                        FilterChip(selected = link != 0L, onClick = {
                             if (candidates.isEmpty()) toast(ctx, "No earlier reflection with a plan was found.") else pick = true
                         }, label = { Text("Yes") })
                     }

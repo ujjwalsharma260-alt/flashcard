@@ -99,7 +99,7 @@ private fun Section(title: String, desc: String, content: @Composable ColumnScop
 @Composable
 private fun <T> Choices(options: List<Pair<String, T>>, current: T, onPick: (T) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        options.forEach { (label, v) -> AppChip(selected = current == v, onClick = { onPick(v) }, label = { Text(label) }) }
+        options.forEach { (label, v) -> FilterChip(selected = current == v, onClick = { onPick(v) }, label = { Text(label) }) }
     }
 }
 

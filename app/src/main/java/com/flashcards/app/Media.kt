@@ -149,7 +149,7 @@ fun ZoomDialog(name: String, onClose: () -> Unit) {
                     },
                 maxSide = 2200
             )
-            AppIconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+            IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = LocalTheme.current.onMedia)
             }
         }
