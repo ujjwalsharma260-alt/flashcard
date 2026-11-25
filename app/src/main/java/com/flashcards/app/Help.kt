@@ -203,7 +203,9 @@ fun HelpScreen(back: () -> Unit) {
         Column(Modifier.padding(pad).padding(horizontal = 14.dp).verticalScroll(rememberScrollState())) {
             OutlinedTextField(
                 query, { query = it }, singleLine = true, label = { Text("Search the help (for example: swipe, formula, backup)") },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                shape = fieldShape(),
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).neumorphField()
             )
             if (q.isEmpty()) {
                 Text("Tap a title to open it. Tap it again to close it. New here? Read them in order.", modifier = Modifier.padding(vertical = 8.dp))

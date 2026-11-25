@@ -315,7 +315,7 @@ fun KolbListScreen(back: () -> Unit, open: (Long) -> Unit, newReflection: (Long)
             actions = {
                 TextButton(onClick = { showGuide = true }) { Text("Guide") }
                 Box {
-                    IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
+                    IconButton(onClick = { topMenu = true }, modifier = Modifier.neumorphIcon()) { Icon(Icons.Default.MoreVert, contentDescription = "Menu") }
                     DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                         DropdownMenuItem(text = { Text("Export all to file") }, onClick = { topMenu = false; exportL.launch("kolbs-backup.json") })
                         DropdownMenuItem(text = { Text("Import from file") }, onClick = { topMenu = false; importL.launch(arrayOf("*/*")) })
@@ -401,7 +401,7 @@ private fun KField(label: String, hint: String, value: String, onChange: (String
     Column(Modifier.padding(vertical = 8.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Text(hint, style = MaterialTheme.typography.labelSmall)
-        OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth().neumorphField(labelled = false), minLines = 3, shape = fieldShape(), colors = fieldColors())
     }
 }
 

@@ -5,24 +5,32 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -443,6 +451,142 @@ fun AppCard(
                 )
             }
             Column { content() }
+        }
+    }
+}
+
+// ---------- neumorph text fields and top-bar icons ----------
+// These decorate the EXISTING Material component (via its modifier / shape / colours)
+// instead of replacing it. That is deliberate: a wrapper must re-declare every
+// OutlinedTextField argument, and the 2026-11-24 build broke exactly that way
+// (`keyboardOptions` was not forwarded). Here keyboardOptions, label, minLines,
+// textStyle and everything else still go straight to OutlinedTextField untouched.
+
+// Same test AppCard uses: a theme is Neumorph when the card carries the twin shadows.
+private fun AppThemeSpec.neumo(): Boolean =
+    card.darkShadow != null && card.lightShadow != null && card.raise > 0.dp
+
+// The same two soft bands AppCard draws, for a small round icon button. Kept separate
+// so AppCard itself does not have to change.
+private fun Modifier.raisedRings(spec: SurfaceSpec, reach: Dp): Modifier {
+    val dark = spec.darkShadow ?: return this
+    val glare = spec.lightShadow ?: return this
+    if (reach <= 0.dp) return this
+    return this.drawBehind {
+        val cr = spec.corner.toPx()
+        val d = reach.toPx() * 0.35f
+        val steps = 8
+        val step = reach.toPx() / steps
+        for (i in steps downTo 1) {
+            val grow = step * i
+            val fade = 1f - (i - 1) / steps.toFloat()
+            drawRoundRect(
+                color = dark.copy(alpha = dark.alpha * fade * 0.55f),
+                topLeft = Offset(d - grow, d - grow),
+                size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                cornerRadius = CornerRadius(cr + grow),
+                style = Stroke(width = step * 1.6f)
+            )
+        }
+        for (i in steps downTo 1) {
+            val grow = step * i
+            val fade = 1f - (i - 1) / steps.toFloat()
+            drawRoundRect(
+                color = glare.copy(alpha = glare.alpha * fade * 0.70f),
+                topLeft = Offset(-d - grow, -d - grow),
+                size = Size(size.width + grow * 2f, size.height + grow * 2f),
+                cornerRadius = CornerRadius(cr + grow),
+                style = Stroke(width = step * 1.6f)
+            )
+        }
+    }
+}
+
+// Raised circle behind an IconButton. It only adds drawing: the IconButton keeps its
+// own 48dp size, touch target, ripple and content colour, so no layout moves.
+@Composable
+fun Modifier.neumorphIcon(): Modifier {
+    val t = LocalTheme.current
+    if (!t.neumo()) return this
+    return this
+        .raisedRings(t.card, t.card.raise * 0.55f)
+        .background(t.scheme.surfaceVariant, CircleShape)
+        .clip(CircleShape)
+}
+
+// Corner radius for a text field: 16dp on Neumorph (card corner minus 6), Material's
+// normal 4dp on every other style.
+@Composable
+fun fieldShape(): Shape {
+    val t = LocalTheme.current
+    return if (t.neumo()) {
+        RoundedCornerShape((t.card.corner - 6.dp).coerceAtLeast(10.dp))
+    } else {
+        OutlinedTextFieldDefaults.shape
+    }
+}
+
+// Neumorph hides the outline; the recess is drawn by neumorphField() instead.
+@Composable
+fun fieldColors(): TextFieldColors {
+    if (!LocalTheme.current.neumo()) return OutlinedTextFieldDefaults.colors()
+    return OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = Color.Transparent,
+        unfocusedBorderColor = Color.Transparent,
+        disabledBorderColor = Color.Transparent
+    )
+}
+
+// Pressed-in look: dark gradient along the top/left edge, light along the bottom/right.
+// Only the gradients are clipped to the rounded shape - NOT the field node itself, because
+// an outlined field draws its floating label half above its top edge and clipping the node
+// would cut that label in half. Draws behind the field, so the field's own fill (transparent
+// for an outlined field) still shows the surface underneath.
+//
+// A labelled OutlinedTextField keeps an 8dp strip above its outline (Material puts the label
+// on the outline, half outside it) and that padding sits *inside* the modifier we receive,
+// so the node is 8dp taller at the top than the visible box. Shading therefore starts 8dp
+// down for labelled fields. Pass labelled = false for a field without a label, where the
+// outline starts at the very top of the node.
+@Composable
+fun Modifier.neumorphField(labelled: Boolean = true): Modifier {
+    val t = LocalTheme.current
+    if (!t.neumo()) return this
+    val s = t.card
+    val dark = s.darkShadow ?: return this
+    val glare = s.lightShadow ?: return this
+    val r = (s.corner - 6.dp).coerceAtLeast(10.dp)
+    val topInset = if (labelled) 8.dp else 0.dp
+    return this.drawBehind {
+        val top = topInset.toPx()
+        val body = size.height - top
+        val path = Path().apply {
+            addRoundRect(RoundRect(0f, top, size.width, size.height, r.toPx(), r.toPx()))
+        }
+        clipPath(path) {
+            val w = (s.raise * 0.45f).toPx() * 1.6f
+            val dk = dark.copy(alpha = dark.alpha * 0.65f)
+            val lg = glare.copy(alpha = glare.alpha * 0.55f)
+            drawRect(
+                brush = Brush.verticalGradient(0f to dk, 1f to Color.Transparent, startY = top, endY = top + w),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, w)
+            )
+            drawRect(
+                brush = Brush.horizontalGradient(0f to dk, 1f to Color.Transparent, startX = 0f, endX = w),
+                topLeft = Offset(0f, top),
+                size = Size(w, body)
+            )
+            drawRect(
+                brush = Brush.verticalGradient(0f to Color.Transparent, 1f to lg, startY = size.height - w, endY = size.height),
+                topLeft = Offset(0f, size.height - w),
+                size = Size(size.width, w)
+            )
+            drawRect(
+                brush = Brush.horizontalGradient(0f to Color.Transparent, 1f to lg, startX = size.width - w, endX = size.width),
+                topLeft = Offset(size.width - w, top),
+                size = Size(w, body)
+            )
         }
     }
 }

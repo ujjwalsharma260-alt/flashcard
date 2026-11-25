@@ -61,7 +61,7 @@ fun ImportScreen(db: Db, startDeck: Long, text: String, back: () -> Unit) {
                 }
             }
             if (target == 0L) {
-                OutlinedTextField(newName, { newName = it }, label = { Text("New deck name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(newName, { newName = it }, label = { Text("New deck name") }, singleLine = true, shape = fieldShape(), colors = fieldColors(), modifier = Modifier.fillMaxWidth().neumorphField())
             }
 
             Spacer(Modifier.height(8.dp))

@@ -107,7 +107,7 @@ fun normTags(s: String): String =
 
 @Composable
 fun BackIcon(onClick: () -> Unit) {
-    IconButton(onClick = onClick) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+    IconButton(onClick = onClick, modifier = Modifier.neumorphIcon()) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
 }
 
 // ---------- root ----------
@@ -268,18 +268,18 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                     val nv = !bookmark
                     bookmark = nv
                     if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(bookmark = if (nv) 1 else 0)) } }
-                }) {
+                }, modifier = Modifier.neumorphIcon()) {
                     Text("🔖", modifier = Modifier.alpha(if (bookmark) 1f else 0.35f))
                 }
                 IconButton(onClick = {
                     val nv = !fav
                     fav = nv
                     if (cardId != 0L) scope.launch { dao.card(cardId)?.let { dao.updateCard(it.copy(fav = if (nv) 1 else 0)) } }
-                }) {
+                }, modifier = Modifier.neumorphIcon()) {
                     Icon(Icons.Default.Star, contentDescription = "Favorite", tint = if (fav) LocalTheme.current.favorite else LocalContentColor.current)
                 }
                 Box {
-                    IconButton(onClick = { editMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                    IconButton(onClick = { editMenu = true }, modifier = Modifier.neumorphIcon()) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
                     DropdownMenu(expanded = editMenu, onDismissRequest = { editMenu = false }) {
                         DropdownMenuItem(text = { Text(if (susp) "Unsuspend card" else "Suspend card") }, onClick = {
                             editMenu = false
@@ -299,7 +299,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                         }
                     }
                 }
-                IconButton(onClick = { save() }) { Icon(Icons.Default.Check, contentDescription = "Save") }
+                IconButton(onClick = { save() }, modifier = Modifier.neumorphIcon()) { Icon(Icons.Default.Check, contentDescription = "Save") }
             }
         )
     }) { pad ->
@@ -362,7 +362,9 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                             onValueChange = { nv -> setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l[i] = e.copy(data = nv) }) },
                             label = { Text(if (e.type == "LATEX") "Formula: paste LaTeX here" else "Text (pasted LaTeX also shows as maths)") },
                             textStyle = if (e.type == "LATEX") MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }
+                            shape = fieldShape(),
+                            colors = fieldColors(),
+                            modifier = Modifier.weight(1f).padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focusIdx = i }.neumorphField()
                         )
                         IconButton(onClick = { setFace(faces[curIdx()].toMutableList().also { l -> if (i in l.indices) l.removeAt(i) }) }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove")
@@ -390,7 +392,7 @@ fun EditorScreen(db: Db, deckId: Long, cardId: Long, ink: Boolean, dark: Boolean
                 cur.filter { (it.type == "TEXT" || it.type == "LATEX") && it.data.isNotBlank() }.map { it.type to it.data },
                 dark, Modifier.fillMaxWidth().height(180.dp)
             )
-            OutlinedTextField(tags, { tags = it; dirty = true }, label = { Text("Tags (e.g. #physics #mechanics)") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(tags, { tags = it; dirty = true }, label = { Text("Tags (e.g. #physics #mechanics)") }, shape = fieldShape(), colors = fieldColors(), modifier = Modifier.fillMaxWidth().neumorphField())
             err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(32.dp))
         }
