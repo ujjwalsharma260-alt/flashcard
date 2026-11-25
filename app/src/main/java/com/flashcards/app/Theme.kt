@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilterChip
@@ -40,7 +39,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -424,8 +422,8 @@ fun Modifier.insetSoft(spec: SurfaceSpec, shape: Shape, depth: Dp = spec.raise):
     if (dark == null || glare == null || depth <= 0.dp) return this
     return this.clip(shape).drawBehind {
         val w = depth.toPx() * 1.6f
-        val dk = dark.copy(alpha = dark.alpha * 0.60f)
-        val lg = glare.copy(alpha = glare.alpha * 0.70f)
+        val dk = dark.copy(alpha = dark.alpha * 0.85f)
+        val lg = glare.copy(alpha = glare.alpha * 0.90f)
         drawRect(
             brush = Brush.verticalGradient(0f to dk, 1f to Color.Transparent, startY = 0f, endY = w),
             size = Size(size.width, w)
@@ -512,15 +510,6 @@ fun AppCard(
 // Screens call these instead of the Material component. Every style except Neumorph falls
 // straight through to plain Material 3, so the other four themes cannot regress.
 
-// A widget sitting on a dark panel needs dark-tuned shadows. Without this the light
-// theme's white glow becomes a halo around every chip on the black study screen.
-private fun softSpecs(s: SurfaceSpec, fill: Color): SurfaceSpec =
-    if (fill.luminance() < 0.35f) {
-        s.copy(darkShadow = Color(0xB3000000), lightShadow = Color(0x1FFFFFFF))
-    } else {
-        s
-    }
-
 @Composable
 fun AppIconButton(
     onClick: () -> Unit,
@@ -533,13 +522,12 @@ fun AppIconButton(
         IconButton(onClick = onClick, modifier = modifier, enabled = enabled) { content() }
         return
     }
-    val bg = LocalSurfaceFill.current
-    val s = softSpecs(t.card, bg)
+    val s = t.card
     Box(
         modifier = modifier
             .size(44.dp)
-            .raisedSoft(s, s.raise * 0.60f)
-            .background(bg, CircleShape)
+            .raisedSoft(s, s.raise * 0.75f)
+            .background(LocalSurfaceFill.current, CircleShape)
             .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -560,13 +548,13 @@ fun AppChip(
         FilterChip(selected = selected, onClick = onClick, label = label, modifier = modifier)
         return
     }
-    val bg = LocalSurfaceFill.current
-    val s = softSpecs(t.card, bg)
+    val s = t.card
     val shape = RoundedCornerShape(50)
+    val bg = LocalSurfaceFill.current
     val deco = if (selected) {
-        Modifier.background(bg, shape).insetSoft(s, shape, s.raise * 0.22f)
+        Modifier.background(bg, shape).insetSoft(s, shape, s.raise * 0.45f)
     } else {
-        Modifier.raisedSoft(s, s.raise * 0.50f).background(bg, shape)
+        Modifier.raisedSoft(s, s.raise * 0.55f).background(bg, shape)
     }
     Box(
         modifier = modifier
@@ -594,8 +582,7 @@ fun AppField(
     minLines: Int = 1,
     label: @Composable (() -> Unit)? = null,
     placeholder: @Composable (() -> Unit)? = null,
-    textStyle: TextStyle = LocalTextStyle.current,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+    textStyle: TextStyle = LocalTextStyle.current
 ) {
     val t = LocalTheme.current
     if (!t.neumorph) {
@@ -608,26 +595,22 @@ fun AppField(
             placeholder = placeholder,
             textStyle = textStyle,
             singleLine = singleLine,
-            minLines = minLines,
-            keyboardOptions = keyboardOptions
+            minLines = minLines
         )
         return
     }
-    val s = softSpecs(t.card, LocalSurfaceFill.current)
-    // Only a one-line box with no label is a full pill; anything taller or labelled keeps
-    // a straighter edge so the floating label has somewhere to sit.
-    val shape = RoundedCornerShape(if (singleLine && label == null) 50 else 18)
+    // A label needs a straighter top edge to sit on, so only unlabelled fields go full pill.
+    val shape = RoundedCornerShape(if (label == null) 50 else 18)
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.insetSoft(s, shape, s.raise * 0.40f),
+        modifier = modifier.insetSoft(t.card, shape, t.card.raise * 0.55f),
         enabled = enabled,
         label = label,
         placeholder = placeholder,
         textStyle = textStyle,
         singleLine = singleLine,
         minLines = minLines,
-        keyboardOptions = keyboardOptions,
         shape = shape,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Color.Transparent,
